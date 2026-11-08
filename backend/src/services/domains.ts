@@ -177,6 +177,53 @@ export function buildAppRoute(
   };
 }
 
+/**
+ * Recursively sorts object keys so that a config parsed by Go (which marshals
+ * maps in sorted order) and the one built here compare equal. Comparing raw
+ * JSON strings was the bug that made every sync look like drift.
+ */
+export function canonicalise(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((entry) => canonicalise(entry));
+
+  if (value !== null && typeof value === 'object') {
+    const source = value as Record<string, unknown>;
+    const sorted: Record<string, unknown> = {};
+
+    for (const key of Object.keys(source).sort()) sorted[key] = canonicalise(source[key]);
+    return sorted;
+  }
+
+  return value;
+}
+
+/**
+ * What "the same route" means.
+ *
+ * Everything that changes behaviour is included — the tag, the host matchers,
+ * the proxy handler and its upstream, the headers we set, and whether the route
+ * is terminal — and nothing else. Key order and formatting are irrelevant, so a
+ * round-tripped route never counts as drift.
+ */
+export function routeFingerprint(route: Record<string, unknown>): string {
+  const handle = Array.isArray(route.handle) ? (route.handle as Record<string, unknown>[]) : [];
+  const proxy = handle[0] ?? {};
+  const upstreams = Array.isArray(proxy.upstreams) ? (proxy.upstreams as { dial?: string }[]) : [];
+  const matchers = Array.isArray(route.match) ? (route.match as Record<string, unknown>[]) : [];
+
+  return JSON.stringify(
+    canonicalise({
+      id: route['@id'] ?? null,
+      hosts: (matchers[0]?.host as string[] | undefined) ?? [],
+      handlers: handle.map((entry) => entry.handler ?? null),
+      dial: upstreams[0]?.dial ?? null,
+      // The headers we attach are configuration too: if one changes and the
+      // fingerprint ignored it, real drift would go unnoticed.
+      headers: proxy.headers ?? null,
+      terminal: route.terminal === true,
+    }),
+  );
+}
+
 /** Extracts the port a managed route points at, for drift detection. */
 export function upstreamPortOf(route: unknown): number | null {
   const handlers = (route as { handle?: unknown[] }).handle;

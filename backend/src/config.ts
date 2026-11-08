@@ -132,6 +132,9 @@ const EnvSchema = z.object({
   NOTIFY_WEBHOOK_URL: z.string().url().optional(),
   NOTIFY_COOLDOWN_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
   NOTIFY_DISK_THRESHOLD_PCT: z.coerce.number().min(50).max(99).default(90),
+  // Recovery is reported only below this, so a disk sitting at the threshold
+  // does not flap between "full" and "fine".
+  NOTIFY_DISK_RECOVER_PCT: z.coerce.number().min(40).max(98).default(85),
   NOTIFY_TIMEOUT_MS: z.coerce.number().int().min(1000).max(15000).default(5000),
 
   // ---- retention (Phase 6) ----
@@ -221,6 +224,7 @@ export interface AppConfig {
     webhookUrl: string | null;
     cooldownMs: number;
     diskThresholdPct: number;
+    diskRecoverPct: number;
     timeoutMs: number;
   };
 
@@ -388,6 +392,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       webhookUrl: value.NOTIFY_WEBHOOK_URL ?? null,
       cooldownMs: value.NOTIFY_COOLDOWN_MINUTES * 60_000,
       diskThresholdPct: value.NOTIFY_DISK_THRESHOLD_PCT,
+      diskRecoverPct: value.NOTIFY_DISK_RECOVER_PCT,
       timeoutMs: value.NOTIFY_TIMEOUT_MS,
     },
 

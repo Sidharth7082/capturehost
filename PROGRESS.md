@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 8 — alerting completed)
+Last updated: 2026-11-08 (session 9 — drift + disk fixes, docs)
 
 ---
 
@@ -353,6 +353,21 @@ way a container is created is the deploy pipeline, which owns the safety policy.
     keeps Caddy's admin API on loopback and needs no image rebuilds; option B
     (compose) is written up in `deploy/DESIGN-NOTE.md` but not shipped.
 
+### Session 9 fixes
+48. **Drift was compared as raw JSON.** Caddy (Go) returns maps with sorted keys;
+    the builder writes them in source order, so `JSON.stringify` never matched and
+    every 60 s sync "repaired" the routes by deleting and re-appending them —
+    a sub-second 404 each time. `routeFingerprint()` canonicalises recursively and
+    compares only what changes behaviour: tag, hosts, handlers, upstream dial, the
+    proxy headers we set, and `terminal`.
+49. **`writeRoutes` is now surgical**: unchanged routes are left in place, only
+    missing/changed ones are deleted and re-appended, and the 404 catch-all is
+    moved back to the end whenever anything was written.
+50. **The disk check watches the data filesystem**, not `fsSize()[0]`: the mount
+    containing `DB_PATH` (longest prefix match, so a sibling with a shared prefix
+    does not match) is reported by name. Hysteresis: alert at 90 %, recovery only
+    below 85 % (`NOTIFY_DISK_RECOVER_PCT`), with a `disk.recovered` notification.
+
 ## 8. Known gaps / deliberate deferrals
 
 - **Phase 5 prerequisites (flagged by the user, do not forget):**
@@ -528,6 +543,19 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   at startup stays quiet, 2 vs 3 domain failures, recovery, lockout payload has
   the IP and not the password, tracker window/project isolation/reset, and the
   route-level "5 bad signatures → exactly one notification".
+
+### 2026-11-08 — session 9
+- Fixed the repeating `caddy.drift`: fingerprint comparison (recursively sorted
+  keys, headers included) and surgical route writes. Live check: 5 minutes of
+  syncs with zero `caddy.drift_repaired` rows, zero drift notifications and zero
+  non-200 responses on the deployed hostname.
+- Disk alert now measures the filesystem holding the database/backups and has
+  hysteresis (90 % up, 85 % down) plus a recovery notification.
+- Docs: honest README intro (inspired by Coolify/CapRover, learning project, with
+  limits stated) and `docs/DEMO.md`, a 7-minute script that mentions no secrets
+  and touches only the test repo and scratch databases.
+- Note for whoever reads this next: the 93 % → 77 % disk reading was a spike that
+  nobody could account for; treat it as unexplained and keep watching.
 
 ## 10. How to resume (for the next agent)
 

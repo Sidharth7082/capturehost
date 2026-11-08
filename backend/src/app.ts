@@ -3,7 +3,6 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import websocket from '@fastify/websocket';
 import Docker from 'dockerode';
-import si from 'systeminformation';
 import type { AppConfig } from './config.js';
 import type { Db } from './db/connection.js';
 import { insertSample, pruneOlderThan } from './db/metrics.repo.js';
@@ -23,6 +22,7 @@ import { createServer, type AppInstance } from './server.js';
 import { AuthService } from './services/auth.js';
 import { BackupService } from './services/backup.js';
 import { DoctorService } from './services/doctor.js';
+import { DiskAlertMonitor } from './services/diskMonitor.js';
 import { DomainMonitor } from './services/domainMonitor.js';
 import { NotificationService } from './services/notifications.js';
 import { RetentionService } from './services/retention.js';
@@ -177,6 +177,15 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   const retention = new RetentionService({ db, config, logger });
   const domainMonitor = new DomainMonitor({ db, caddy, notifications, logger });
   const containerWatcher = new ContainerWatcher({ docker, notifications, logger });
+  // Watches the filesystem holding the database, not whichever one the kernel
+  // lists first.
+  const diskMonitor = new DiskAlertMonitor({
+    paths: [config.dbPath, config.backups.dir],
+    thresholdPct: config.notify.diskThresholdPct,
+    recoverPct: config.notify.diskRecoverPct,
+    notifications,
+    logger,
+  });
 
   // A lockout is worth knowing about while away; the handler only ever sends the
   // IP and the lockout window.
@@ -354,17 +363,7 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     healthTimer = setInterval(() => {
       void (async () => {
         try {
-          const [fs] = await si.fsSize();
-          const used = fs?.use ?? 0;
-          if (used >= config.notify.diskThresholdPct) {
-            await notifications.notify({
-              event: 'disk.high',
-              severity: 'warning',
-              title: `Disk ${used.toFixed(0)}% full`,
-              body: `${fs?.mount ?? '/'} is above the ${config.notify.diskThresholdPct}% threshold.`,
-              dedupeKey: 'disk.high',
-            });
-          }
+          await diskMonitor.check();
 
           // Domain health: a failing hostname only alerts after three strikes.
           await domainMonitor.checkAll().catch((error: unknown) => {

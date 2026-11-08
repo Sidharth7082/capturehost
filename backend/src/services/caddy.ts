@@ -16,6 +16,7 @@ import {
   ROUTE_TAG_PREFIX as ROUTE_PREFIX,
   buildAppRoute,
   buildCatchAllRoute,
+  routeFingerprint,
   isManagedRoute,
   probeHostname,
   routeTag,
@@ -234,9 +235,39 @@ export class CaddyService {
    */
   private async writeRoutes(server: ServerRef, desired: Record<string, unknown>[]): Promise<void> {
     const current = server.routes.filter(isManagedRoute);
+    const currentById = new Map(current.map((route) => [String(route['@id']), route]));
+    const desiredById = new Map(desired.map((route) => [String(route['@id']), route]));
 
-    await this.deleteRoutes(current.map((route) => String(route['@id'])));
-    await this.appendRoutes(server, [...desired, buildCatchAllRoute()]);
+    // Routes that are no longer wanted, or whose behaviour changed.
+    const stale = current
+      .filter((route) => {
+        const id = String(route['@id']);
+        if (id === CATCH_ALL_TAG) return false;
+
+        const wanted = desiredById.get(id);
+        return wanted === undefined || routeFingerprint(route) !== routeFingerprint(wanted);
+      })
+      .map((route) => String(route['@id']));
+
+    // Routes that are missing, or were just removed above to be replaced.
+    const toAppend = desired.filter((route) => {
+      const id = String(route['@id']);
+      const existing = currentById.get(id);
+      return existing === undefined || routeFingerprint(existing) !== routeFingerprint(route);
+    });
+
+    const catchAll = currentById.get(CATCH_ALL_TAG);
+    const catchAllOk =
+      catchAll !== undefined &&
+      String(server.routes.at(-1)?.['@id']) === CATCH_ALL_TAG &&
+      routeFingerprint(catchAll) === routeFingerprint(buildCatchAllRoute());
+
+    if (stale.length === 0 && toAppend.length === 0 && catchAllOk) return;
+
+    // The 404 has to stay last. Anything appended now would land after it, so
+    // whenever we write anything, it is removed and re-added at the end.
+    await this.deleteRoutes([...stale, ...(catchAllOk && toAppend.length === 0 ? [] : [CATCH_ALL_TAG])]);
+    await this.appendRoutes(server, [...toAppend, buildCatchAllRoute()]);
   }
 
   /**
@@ -297,33 +328,32 @@ export class CaddyService {
 
       const currentManaged = server.routes.filter(isManagedRoute);
       const currentDomainRoutes = currentManaged.filter((route) => String(route['@id']) !== CATCH_ALL_TAG);
-      const hasCatchAll = currentManaged.some((route) => String(route['@id']) === CATCH_ALL_TAG);
-      const catchAllLast = hasCatchAll && String(server.routes.at(-1)?.['@id']) === CATCH_ALL_TAG;
+      const currentCatchAll = currentManaged.find((route) => String(route['@id']) === CATCH_ALL_TAG) ?? null;
+      const catchAllLast = String(server.routes.at(-1)?.['@id']) === CATCH_ALL_TAG;
 
       const desiredById = new Map(desired.map((route) => [String(route['@id']), route]));
 
-      let added = 0;
-      let removed = 0;
-      let repaired = 0;
+      const added = desired.filter(
+        (route) => !currentDomainRoutes.some((existing) => String(existing['@id']) === String(route['@id'])),
+      ).length;
 
-      for (const route of currentDomainRoutes) {
-        const id = String(route['@id']);
-        const wanted = desiredById.get(id);
-        if (!wanted) {
-          removed += 1;
-          continue;
-        }
-        if (JSON.stringify(route) !== JSON.stringify(wanted)) repaired += 1;
-      }
+      const removed = currentDomainRoutes.filter((route) => !desiredById.has(String(route['@id']))).length;
 
-      for (const id of desiredById.keys()) {
-        if (!currentDomainRoutes.some((route) => String(route['@id']) === id)) added += 1;
-      }
+      const repaired = currentDomainRoutes.filter((route) => {
+        const wanted = desiredById.get(String(route['@id']));
+        return wanted !== undefined && routeFingerprint(route) !== routeFingerprint(wanted);
+      }).length;
 
-      const drift = added > 0 || removed > 0 || repaired > 0 || !catchAllLast;
-      const same = !drift && currentDomainRoutes.length === desired.length;
+      // The 404 must be present and last; anything else is drift even when the
+      // domain routes themselves are fine.
+      const catchAllDrift =
+        currentCatchAll === null ||
+        !catchAllLast ||
+        routeFingerprint(currentCatchAll) !== routeFingerprint(buildCatchAllRoute());
 
-      if (!same) await this.writeRoutes(server, desired);
+      const drift = added > 0 || removed > 0 || repaired > 0 || catchAllDrift;
+
+      if (drift) await this.writeRoutes(server, desired);
 
       // A route that exists and points somewhere is "active"; the HTTP probe is
       // a separate, explicit action (POST /api/domains/:id/check).
@@ -373,6 +403,15 @@ export class CaddyService {
       const desired = this.desiredRoutes(targets, new Map([[projectId, port]]));
       const config = await this.configJson();
       const server = this.findAppsServer(config);
+
+      // If this project already points at that port and the catch-all is still
+      // last, a deploy that reused its port needs no write at all.
+      const upToDate = desired.every((route) => {
+        const existing = server.routes.find((entry) => String(entry['@id']) === String(route['@id']));
+        return existing !== undefined && routeFingerprint(existing) === routeFingerprint(route);
+      }) && String(server.routes.at(-1)?.['@id']) === CATCH_ALL_TAG;
+
+      if (upToDate) return;
 
       // Replace exactly this project's routes and re-append the catch-all last,
       // so the ordering survives every deploy.
@@ -491,16 +530,22 @@ export class CaddyService {
       base.otherRoutes = server.routes.length - ours.length;
       base.version = await this.version();
 
-      // Drift right now, not as of the last sync.
+      // Drift right now, not as of the last sync. This uses the same
+      // fingerprint as the reconciler: comparing raw JSON here reported drift
+      // for a route Caddy had merely re-serialised (sorted keys), which fired
+      // alerts that nothing could repair.
       const desired = this.desiredRoutes(this.targetsWithPort());
+      const catchAll = server.routes.find((route) => String(route['@id']) === CATCH_ALL_TAG);
+
       base.drift =
-        !server.routes.some((route) => String(route['@id']) === CATCH_ALL_TAG) ||
+        catchAll === undefined ||
+        String(server.routes.at(-1)?.['@id']) !== CATCH_ALL_TAG ||
+        routeFingerprint(catchAll) !== routeFingerprint(buildCatchAllRoute()) ||
         managed.length !== desired.length ||
-        desired.some(
-          (route, index) =>
-            JSON.stringify(route) !== JSON.stringify(managed[index]) ||
-            upstreamPortOf(route) !== upstreamPortOf(managed[index] ?? {}),
-        );
+        desired.some((route) => {
+          const existing = managed.find((entry) => String(entry['@id']) === String(route['@id']));
+          return existing === undefined || routeFingerprint(existing) !== routeFingerprint(route);
+        });
 
       return base;
     } catch (error) {

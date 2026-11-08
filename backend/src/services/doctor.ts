@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, readlinkSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import si from 'systeminformation';
+import { diskUsageFor } from './diskMonitor.js';
 import type { AppConfig } from '../config.js';
 import type { Db } from '../db/connection.js';
 import { getAdmin } from '../db/auth.repo.js';
@@ -335,20 +335,26 @@ export class DoctorService {
 
     // ----------------------------------------------------------------- disk
     try {
-      // systeminformation can block on an odd mount (stale NFS, slow FUSE), so
-      // the check races a timeout and degrades to "skipped" instead of hanging
-      // the whole report.
-      const [fs] = await Promise.race([
-        si.fsSize(),
+      // The filesystem that holds the database and backups — the one that can
+      // actually fill up because of CaptureHost.
+      const usage = await Promise.race([
+        diskUsageFor(this.config.dbPath),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
       ]);
-      const used = fs?.use ?? 0;
+
       push({
         id: 'disk-space',
         title: 'Disk space',
-        status: used >= this.config.notify.diskThresholdPct ? 'fail' : used >= 80 ? 'warn' : 'pass',
-        detail: `${used.toFixed(0)}% used on ${fs?.mount ?? '/'} (threshold ${this.config.notify.diskThresholdPct}%)`,
-        ...(used >= 80 ? { fix: 'docker image prune of our own images, clear deployments/, prune old backups' } : {}),
+        status:
+          usage.use >= this.config.notify.diskThresholdPct
+            ? 'fail'
+            : usage.use >= this.config.notify.diskRecoverPct
+              ? 'warn'
+              : 'pass',
+        detail: `${usage.use.toFixed(0)}% used on ${usage.mount} (holds ${usage.target}, threshold ${this.config.notify.diskThresholdPct}%)`,
+        ...(usage.use >= this.config.notify.diskRecoverPct
+          ? { fix: 'Prune our own images (per project), clear deployments/, prune old backups' }
+          : {}),
       });
     } catch {
       push({ id: 'disk-space', title: 'Disk space', status: 'skip', detail: 'filesystem stats unavailable' });

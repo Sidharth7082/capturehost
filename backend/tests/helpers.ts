@@ -102,6 +102,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       webhookUrl: null,
       cooldownMs: 30 * 60_000,
       diskThresholdPct: 90,
+      diskRecoverPct: 85,
       timeoutMs: 2000,
     },
     retention: {

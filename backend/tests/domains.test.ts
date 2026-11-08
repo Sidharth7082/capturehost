@@ -486,4 +486,100 @@ describe('CaddyService', () => {
 
     expect(listDomains(testDb.db).find((domain) => domain.id === id)?.status).toBe('active');
   });
+
+
+  /** How Caddy hands a config back: Go marshals maps with sorted keys. */
+  function sortKeys(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map((entry) => sortKeys(entry));
+
+    if (value !== null && typeof value === 'object') {
+      const sorted: Record<string, unknown> = {};
+      for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+        sorted[key] = sortKeys((value as Record<string, unknown>)[key]);
+      }
+      return sorted;
+    }
+
+    return value;
+  }
+
+  it('does not treat a re-serialised route as drift', async () => {
+    await setup();
+    createDomain(testDb.db, { projectId, hostname: 'hello.capturehost.localhost', now: Date.now() });
+    await service.sync('first');
+
+    const writesBefore = fake.writes;
+
+    // Caddy returns our route with every object's keys sorted alphabetically.
+    const servers = (fake.config.apps as { http: { servers: Record<string, { routes?: unknown[] }> } }).http.servers;
+    servers.srv0!.routes = (servers.srv0!.routes ?? []).map((route) => sortKeys(route));
+
+    const result = await service.sync('after-reserialise');
+
+    expect(result.drift).toBe(false);
+    expect(result.repaired).toBe(0);
+    expect(fake.writes).toBe(writesBefore);
+  });
+
+  it('repairs a route whose upstream changed', async () => {
+    await setup();
+    createDomain(testDb.db, { projectId, hostname: 'hello.capturehost.localhost', now: Date.now() });
+    await service.sync('first');
+
+    const stored = routes().find((route) => isManagedRoute(route)) as {
+      handle: { upstreams: { dial: string }[] }[];
+    };
+    stored.handle[0]!.upstreams[0]!.dial = '127.0.0.1:9999';
+
+    const result = await service.sync('after-dial-change');
+
+    expect(result.repaired).toBe(1);
+    expect(upstreamPortOf(managed()[0])).toBe(8100);
+  });
+
+  it('repairs a route whose proxy header changed', async () => {
+    await setup();
+    createDomain(testDb.db, { projectId, hostname: 'hello.capturehost.localhost', now: Date.now() });
+    await service.sync('first');
+
+    const stored = routes().find((route) => isManagedRoute(route)) as {
+      handle: { headers: { request: { set: Record<string, string[]> } } }[];
+    };
+    stored.handle[0]!.headers.request.set['X-Forwarded-Host'] = ['something-else'];
+
+    const result = await service.sync('after-header-change');
+
+    expect(result.repaired).toBe(1);
+    expect(JSON.stringify(managed()[0])).toContain('{http.request.host}');
+  });
+
+  it('adds a missing route and keeps the catch-all last', async () => {
+    await setup();
+    createDomain(testDb.db, { projectId, hostname: 'hello.capturehost.localhost', now: Date.now() });
+    await service.sync('first');
+
+    // Someone removed our route (a reload, or a hand edit).
+    const servers = (fake.config.apps as { http: { servers: Record<string, { routes?: unknown[] }> } }).http.servers;
+    servers.srv0!.routes = (servers.srv0!.routes ?? []).filter((route) => !isManagedRoute(route) || String(route['@id']) === 'capturehost-catchall');
+
+    const result = await service.sync('after-removal');
+
+    expect(result.added).toBe(1);
+    expect(managed()).toHaveLength(1);
+    expect(String(routes().at(-1)!['@id'])).toBe('capturehost-catchall');
+  });
+
+  it('does not report drift in status() for a re-serialised route', async () => {
+    await setup();
+    createDomain(testDb.db, { projectId, hostname: 'hello.capturehost.localhost', now: Date.now() });
+    await service.sync('first');
+
+    const servers = (fake.config.apps as { http: { servers: Record<string, { routes?: unknown[] }> } }).http.servers;
+    servers.srv0!.routes = (servers.srv0!.routes ?? []).map((route) => sortKeys(route));
+
+    const status = await service.status();
+
+    expect(status.reachable).toBe(true);
+    expect(status.drift).toBe(false);
+  });
 });

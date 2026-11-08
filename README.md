@@ -1,8 +1,19 @@
 # CaptureHost
 
-Self-hosted hosting dashboard for a single Arch Linux machine: live system
-metrics, Docker control, GitHub deployments and subdomains with automatic
-HTTPS — one web UI, no cloud account.
+A self-hosted hosting dashboard for one laptop: watch the machine, control
+Docker, deploy a GitHub repo behind a hostname, back it all up — from a single
+private web UI, with no cloud account.
+
+It is **inspired by Coolify and CapRover** and deliberately smaller: one machine,
+one admin, no clustering. It was built as a learning project (BCA), which is why
+it spends its effort on the parts those tools hide — a container policy you can
+read and attack, signature-checked webhooks, blue/green swaps, Caddy routes
+reconciled from SQLite, encrypted backups, and a security doctor you can run from
+a shell.
+
+Known limits, stated up front: **single machine only**; deployments need a
+**Dockerfile** (no buildpack detection); `public` Caddy mode is **untested**; and
+deploy **only repositories you trust** — a build runs that repo's code here.
 
 **Status: all six phases complete** (monitoring, auth, Docker, deployments,
 domains/Caddy, backups + hardening). [PROGRESS.md](./PROGRESS.md) is the
