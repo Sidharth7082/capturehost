@@ -206,6 +206,12 @@ There is deliberately **no exec endpoint and no create-container endpoint**.
 
 ## 8. Known gaps / deliberate deferrals
 
+- **Phase 5 prerequisites (flagged by the user, do not forget):**
+  - When Caddy sits in front, set `TRUST_PROXY=true`, otherwise every request
+    arrives as `127.0.0.1` and the per-IP login lockout becomes one shared
+    bucket — one wrong password locks the world out.
+  - Set `SESSION_COOKIE_SECURE=true` the moment the dashboard is served over
+    HTTPS (the cookie then also gains the `__Host-` prefix).
 - `docker-compose.yml` for production — Phase 6 (dev compose exists).
 - Full README with troubleshooting — Phase 6.
 - Light theme toggle — not requested yet. Disk stat card has no sparkline.
