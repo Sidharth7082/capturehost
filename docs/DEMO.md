@@ -24,6 +24,8 @@ caddy run --config deploy/caddy/Caddyfile --adapter caddyfile &
 
 ---
 
+> Adding a project of your own, field by field: [ADD-YOUR-PROJECT.md](ADD-YOUR-PROJECT.md).
+
 ## Minute 0–1 — What it is
 
 Open `http://127.0.0.1:5173`.

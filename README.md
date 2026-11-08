@@ -223,6 +223,11 @@ DOCKER_API_PASSWORD='…' node scripts/integration-docker.mjs
 
 ## Deploy a site from GitHub
 
+The step-by-step operator guide — what a repository needs, the form fields, deploy
+states, hostnames, env vars, webhooks, rollback and troubleshooting — is
+**[docs/ADD-YOUR-PROJECT.md](docs/ADD-YOUR-PROJECT.md)**. The rest of this section is
+the short version.
+
 A project = one repository, one branch, one Dockerfile, one container.
 
 1. **Projects → New Project**: name, `https://github.com/owner/repo`, branch,

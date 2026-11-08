@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-09 (session 21 — empty-state illustrations wired through EmptyState)
+Last updated: 2026-11-09 (session 22 — operator guide: adding and running your own project)
 
 ---
 
@@ -535,6 +535,11 @@ way a container is created is the deploy pipeline, which owns the safety policy.
 
 ## 8. Known gaps / deliberate deferrals
 
+- **`healthPath` is API-only.** The deploy pipeline honours it (a 2xx probe on the
+  published port), but the project form never asks for one, so in the UI health is
+  "the process was still running twice, a second apart". A project needing a real
+  readiness URL has to set it through `PATCH /api/projects/:id`.
+
 - **2FA is off on the admin by the owner's decision** (2026-11-08). The dashboard
   binds loopback only, so a strong password is the accepted bar for now and the
   doctor will keep reporting exactly one warn about it. Revisit at the moment
@@ -1053,6 +1058,33 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   UI. Also, the marks sit small inside their 4:3 cards at 240px.
 - Gates: 340 backend tests, `tsc` clean both packages, build 112 modules, `npm audit`
   0 vulnerabilities.
+
+### 2026-11-09 — session 22 (guide: adding and running your own project)
+- New `docs/ADD-YOUR-PROJECT.md` — the operator's path from "I have a repository"
+  to "it answers on a hostname", written against the code rather than the intent:
+  - the four prerequisites table (HTTPS GitHub repo, a Dockerfile, the app bound to
+    the declared container port on 0.0.0.0, no persistent writes since no volumes
+    are ever mounted);
+  - the create form field by field with its real defaults (branch `main`,
+    Dockerfile path `Dockerfile`, container port `80`, memory 512 MB, CPU 0.5) and
+    the real limits (4096 MB, 4 CPU, 256 pids fixed);
+  - the deploy state machine with what each failure means, blue/green semantics and
+    cancellation;
+  - hostnames: `*.localhost` in local mode, reachable at the Caddy apps listener
+    `:8080`, HTTP only, and what happens on delete;
+  - env vars are write-only and apply on the next deploy; webhooks need a tunnel;
+  - rollback reuses the image (no rebuild) and keeps the last 3 images;
+  - what the container cannot do (no privileged/host net/binds/devices/socket, four
+    capabilities only) and the practical consequences (nginx needs all four);
+  - a troubleshooting table using the pipeline's own error strings
+    (`No Dockerfile at "…" in this repository`, `Container is in a restart loop`,
+    `Health check did not pass within 30s`);
+  - two minimal Dockerfiles (static nginx, Node) and the worked example that already
+    exists here (`hello-capturehost`).
+- Linked from the README deploy section and from `docs/DEMO.md`.
+- Writing it surfaced a real gap, now in §8: **`healthPath` is exposed by the API and
+  honoured by the pipeline, but the project form never asks for it**, so health is
+  effectively "process stayed up". Worth a form field when someone needs it.
 
 ## 10. How to resume (for the next agent)
 
