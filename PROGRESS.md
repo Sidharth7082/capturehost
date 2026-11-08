@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 16 — case-insensitive login, 404 page, portalled row menu)
+Last updated: 2026-11-08 (session 17 — one-command dev launcher)
 
 ---
 
@@ -13,7 +13,7 @@ Last updated: 2026-11-08 (session 16 — case-insensitive login, 404 page, porta
 | Item | Value |
 |---|---|
 | Current phase | **Phase 6 — backups, alerts, production: DONE**. All six phases built. |
-| Verified state | 340 backend tests pass (18 files), `tsc` clean both packages, `npm audit` 0 vulns, real deploy of `Sidharth7082/capturehost-test-app` live on 127.0.0.1:8101, screenshots at 1440 and 390 — suite re-run in session 16 |
+| Verified state | 340 backend tests pass (18 files) + 21 launcher unit tests, `tsc` clean both packages, `npm audit` 0 vulns, real deploy of `Sidharth7082/capturehost-test-app` live on 127.0.0.1:8101, screenshots at 1440 and 390 — suite re-run in session 17 |
 | Last commit | `b81aca0 feat(cli): change:password to rotate the admin password from a shell` |
 | Next action | none — the build is complete; production runner is option A (systemd, `deploy/systemd/`) |
 
@@ -66,15 +66,25 @@ cd ~/capturehost/backend && cp .env.example .env
 openssl rand -base64 32        # paste into APP_ENCRYPTION_KEY
 npm run setup:admin            # interactive; creates the only admin account
 
-# socket proxy (needed from Phase 3 on)
-cd ~/capturehost && docker compose -f docker-compose.dev.yml up -d
+# every time — proxy, Caddy, backend and frontend in dependency order
+cd ~/capturehost && python3 capturehost.py            # foreground, Ctrl-C stops it
+python3 capturehost.py start -d                       # or in the background
+python3 capturehost.py status | logs backend -f | stop
 
-# every time
-cd ~/capturehost/backend  && npm run dev     # :8787, loopback only
-cd ~/capturehost/frontend && npm run dev     # :5173, proxies /api + /ws
+# launcher unit tests
+python3 -m unittest discover -s tests -v              # 21 tests
 
 # live docker check (touches only its own labelled container)
 DOCKER_API_PASSWORD='…' node scripts/integration-docker.mjs
+```
+
+The manual equivalent, if the launcher is ever unavailable:
+
+```bash
+cd ~/capturehost && docker compose -f docker-compose.dev.yml up -d
+cd ~/capturehost/backend  && npm run dev     # :8787, loopback only
+cd ~/capturehost/frontend && npm run dev     # :5173, proxies /api + /ws
+~/.local/bin/caddy run --config deploy/caddy/Caddyfile --adapter caddyfile
 ```
 
 ---
@@ -402,6 +412,31 @@ way a container is created is the deploy pipeline, which owns the safety policy.
 55. **Focus lands during the same pre-paint pass that measures the menu**, so the
     menu is hidden with `opacity: 0`, never `visibility: hidden` — an invisible
     element cannot take focus and the first `focus()` is silently dropped.
+
+### Session 17 (dev launcher)
+56. **The launcher owns processes, not ports.** `.run/pids.json` records pid, pgid,
+    cwd and a cmdline marker per service; anything not recorded is never signalled,
+    and a recorded pid is re-verified (pid + marker + cwd) before any signal because
+    a long session can recycle pids. `stop` and Ctrl-C act on what the file says we
+    own — including a service this invocation *skipped* because it was already
+    healthy from an earlier launcher run. `docker compose stop` is scoped to
+    `docker-compose.dev.yml`, so deployed project containers and other containers
+    are untouched.
+57. **Zombies are not "alive".** In foreground mode the children are ours, so a
+    SIGKILLed child stays in `/proc` until reaped and `killpg(pgid, 0)` keeps
+    succeeding. The first version therefore waited its whole 10 s grace, sent
+    SIGKILL to something already dead and printed "would not die" — and the whole
+    shutdown took longer than the test harness allowed. `group_alive()` now reads
+    `/proc/<pid>/stat` and ignores state `Z`, and `_reap()` waits on our own child.
+58. **`Popen` can return before the child has exec'd**, and an unexec'd child has an
+    empty `/proc/<pid>/cmdline` — `verify_pid` is then a false negative (the safe
+    direction: we refuse to kill). Nothing in the flow verifies a pid at spawn time;
+    the unit test waits for the cmdline to appear before asserting.
+59. **A failed start never leaves half a stack.** A port held by someone else, a
+    failed `compose up`, a service that exits during startup or is not healthy in
+    time all run the same shutdown path, so a port conflict on the backend cannot
+    leave Caddy holding `:2019` with nothing behind it. The offending process is
+    named from `ss` and left running.
 
 ## 8. Known gaps / deliberate deferrals
 
@@ -746,6 +781,47 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   the same components in the same `Card flush` + `DataTable` markup; the owner
   clicks the real row menu.
 - Gates: 340 tests, `tsc` clean both packages, `npm run build` 103 modules.
+
+### 2026-11-08 — session 17 (one-command dev launcher)
+- `capturehost.py` at the repo root: `start` (foreground multiplexed logs, or
+  `--detach`), `stop`, `restart`, `status`, `logs <service> [-f]`, `doctor`,
+  `open`, plus `--no-frontend` and `--prod` (a pointer to systemd, not a mode).
+  Stdlib only; every child is an argument list with an explicit cwd and its own
+  session; no sudo, no shell.
+- Start order proxy → Caddy → backend → frontend, each gated on a health probe
+  (`/_ping`, `/config/` with the Origin header the admin API requires,
+  `/api/health`, then port 5173) with per-service timeouts.
+- Logs in `.run/logs/<service>.log`, rotated at 5 MB; `.run/` and `__pycache__/`
+  added to `.gitignore`.
+- Real run on this machine, in order:
+  - swept 9 leftover dev processes from earlier sessions (five orphaned
+    `npm run dev` backend chains included) — matched by cmdline/cwd against this
+    repo only, so nothing unrelated was touched;
+  - `status` from stopped → four rows `stopped`;
+  - `start --detach` → proxy, Caddy, backend, frontend all `healthy` in one pass;
+  - `status` → `running` with pids 1275603/1275626/1275723; `curl` 200 on
+    `/api/health`, vite `/`, and `capturehost.localhost:8090` through Caddy;
+  - `start --detach` again → four `skip` lines, still 3 leaf processes (no dupes);
+  - `stop` → all four stopped, **0** surviving `node`/`caddy` processes,
+    ports 8787/5173/2019/8090/8080 free;
+  - `docker ps -a` before/after: `capturehost-hello-capturehost-25` still **Up**
+    (a deployed project), `beautiful_heisenberg` untouched, only the socket proxy
+    was stopped — by `compose stop` for our file.
+- Failure modes exercised:
+  - **Ctrl-C in the foreground**: `timeout -s INT` at 14 s → exit 130, wall 14 s,
+    all four stopped in reverse order (`frontend`, `backend`, `caddy`, `proxy`).
+  - **Port conflict**: `python3 -m http.server 8787` (not ours) → `fail backend:
+    port 8787 is held by python3 (pid 1274222), which this script did not start`,
+    Caddy and the proxy rolled back, exit 1, squatter still answering 200.
+  - `status` reports that case as `foreign` with the owner, not `stopped`.
+- Unit tests: 21 (`unittest`, no deps) covering port checks, health waits with
+  timeouts, pid verification (incl. a dead pid, a recycled-marker pid and compose
+  entries), log rotation, the state file, and the service definitions
+  (loopback-only probes, no shell metacharacters in argv).
+- Two bugs found by running it, not by reasoning: the zombie/`killpg` loop above
+  (decisions 57) and the `Popen`-before-exec window (58).
+- Gates: 340 backend tests, 21 launcher tests, `tsc` clean both packages,
+  frontend build 103 modules.
 
 ## 10. How to resume (for the next agent)
 

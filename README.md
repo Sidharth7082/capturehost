@@ -51,7 +51,8 @@ sudo usermod -aG docker "$USER"   # log out and back in afterwards
 
 Two processes: the API on `127.0.0.1:8787` and the Vite dev server on
 `127.0.0.1:5173` (which proxies `/api` and `/ws` to the backend, so the browser
-only ever sees one origin).
+only ever sees one origin). The steps below are the one-time setup; after that,
+`python3 capturehost.py` starts the whole stack (see the next section).
 
 ```bash
 git clone <your-repo> capturehost && cd capturehost
@@ -76,6 +77,46 @@ There is no public signup and no HTTP endpoint that creates an account: the
 first admin can only be created from a shell on the machine. If you lose the
 password, `npm run reset:admin` (also shell-only) wipes the account so
 `setup:admin` can run again.
+
+## Run everything with one command
+
+Once the one-time setup above is done (`.env` with a key, `npm install`, an admin
+account), the four processes — socket proxy, Caddy, backend, frontend — start in
+dependency order from the repo root:
+
+```bash
+python3 capturehost.py            # foreground: prefixed, colour-coded logs, Ctrl-C stops it all
+python3 capturehost.py start -d   # background; returns when everything is healthy
+python3 capturehost.py status     # service, state, pid, port, health
+python3 capturehost.py logs backend -f
+python3 capturehost.py stop       # only what this script started
+```
+
+Optional alias:
+
+```bash
+alias capturehost='python ~/capturehost/capturehost.py'
+```
+
+What it guarantees, because a launcher that gets these wrong is worse than no
+launcher:
+
+- **It only stops what it started.** Pids go to `.run/pids.json` and are re-verified
+  (pid, process group, cwd, command line) before any signal, then the whole process
+  group gets SIGTERM, 10 s, SIGKILL — so `npm`'s `tsx`/`vite` children go with it.
+  Containers started by a deployment are never touched; the socket proxy is stopped
+  with `docker compose stop` for this repo's compose file only.
+- **Idempotent.** Starting twice reports "already running" instead of duplicating.
+- **Loud about port conflicts.** If something else holds a port it prints the owner
+  from `ss` and exits non-zero, rolling back what it already started. It never kills
+  a process it did not start.
+- **No sudo, no shell.** Argument lists with explicit cwds; Docker is checked, not
+  started (`sudo systemctl start docker` is your call).
+- `--no-frontend` (backend + Caddy only) and `--prod` (a pointer to the systemd
+  setup — production is *not* this script).
+
+Logs live in `.run/logs/<service>.log`, rotated at 5 MB (`.run/` is git-ignored).
+Unit tests for the helpers: `python3 -m unittest discover -s tests -v`.
 
 ## Verify
 

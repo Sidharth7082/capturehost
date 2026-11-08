@@ -25,6 +25,12 @@ backend/data/backups/
 deployments/
 logs/
 *.log
+# launcher state: pids, and the dev logs written by capturehost.py
+.run/
+
+# python
+__pycache__/
+*.pyc
 
 # editor / OS
 .vscode/
