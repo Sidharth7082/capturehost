@@ -40,14 +40,6 @@ export const NAV_PAGES: readonly NavPage[] = [
     phase: 3,
   },
   {
-    path: '/deployments',
-    label: 'Deployments',
-    subtitle: 'Per-project history lives on each project page',
-    icon: 'deployments',
-    ready: false,
-    phase: 4,
-  },
-  {
     path: '/domains',
     label: 'Domains',
     subtitle: 'Subdomains routed through Caddy',

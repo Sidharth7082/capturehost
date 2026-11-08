@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 13 — state file corrected, dev login unblocked)
+Last updated: 2026-11-08 (session 14 — Deployments sidebar entry removed)
 
 ---
 
@@ -368,7 +368,24 @@ way a container is created is the deploy pipeline, which owns the safety policy.
     does not match) is reported by name. Hysteresis: alert at 90 %, recovery only
     below 85 % (`NOTIFY_DISK_RECOVER_PCT`), with a `disk.recovered` notification.
 
+### Session 14 fixes
+51. **Deployment history is per project, not global.** A sidebar item labelled
+    "Deployments" that opened nothing (and a `/deployments` route that opened an
+    empty placeholder) claimed a page the app does not have; both are gone rather
+    than left as a roadmap promise. A cross-project list wants a new
+    `GET /api/deployments` and is only worth it with several projects deployed.
+
 ## 8. Known gaps / deliberate deferrals
+
+- **No global Deployments page.** History is per project (Projects → a project →
+  Deployments tab), which is enough while there is one project. The sidebar entry,
+  the `/deployments` route and the placeholder page were removed in session 14;
+  `PagePlaceholder` and the `ready`/`phase` nav mechanism stay (a `ready: false`
+  item renders "Soon", and nothing uses it right now).
+- **There is no catch-all route in the frontend.** A URL that matches nothing
+  (`/deployments` today, anything else tomorrow) renders the layout with an empty
+  content area rather than a 404 page. Vite serves `index.html` for it, so the tab
+  looks blank-but-alive. A `NotFound` route is the fix when it starts to matter.
 
 - **Phase 5 prerequisites (flagged by the user, do not forget):**
   - When Caddy sits in front, set `TRUST_PROXY=true`, otherwise every request
@@ -619,6 +636,27 @@ way a container is created is the deploy pipeline, which owns the safety policy.
 - `npm run doctor` on this state: **14 pass / 2 warn / 0 fail** — the warns are
   "2FA is off" and "development defaults in use" (`CADDY_MODE=local`), both
   expected on the dev copy.
+
+### 2026-11-08 — session 14 (Deployments sidebar entry removed)
+- Owner picked option A over a cross-project page: with one project, a global list
+  is the project's Deployments tab plus a project column.
+- Removed `NAV_PAGES` entry for `/deployments` (`navigation.ts`), the `<Route
+  path="deployments">` and its import (`App.tsx`), and `pages/Deployments.tsx`
+  (a `PagePlaceholder` with a hardcoded empty table and a `// Phase 4 fills this`
+  comment). `PagePlaceholder` stays — `Databases.tsx` still imports it.
+- Kept the `ready`/`phase` nav mechanism: `ready: false` still renders the disabled
+  "Soon" chip and `CommandPalette` still prints `Phase N`, so the next roadmap item
+  needs no new code. Nothing is `ready: false` today.
+- Disk alert hysteresis deliberately **not** persisted (owner's call): after a
+  restart the worst case is one extra `disk.high`, which costs less than a column.
+- Verified: `npx vitest run` 338/338, `tsc --noEmit` exit 0 in both packages,
+  `npm run build` 102 modules / 376.86 kB js / 54.31 kB css, and the running vite
+  dev server serves `navigation.ts` and `App.tsx` with zero `Deployments` references
+  (checked with `curl 127.0.0.1:5173/src/navigation.ts`).
+- Not verifiable from here: the sidebar render and `/deployments` now showing an
+  empty content area need a logged-in browser; the owner's session is in their
+  browser and nobody should be typing that password into an agent.
+- 2FA still off on the dev admin (`capture`) — the owner is doing it themselves.
 
 ## 10. How to resume (for the next agent)
 

@@ -9,7 +9,6 @@ import { Dashboard } from './pages/Dashboard';
 import { Backups } from './pages/Backups';
 import { Notifications } from './pages/Notifications';
 import { Security } from './pages/Security';
-import { Deployments } from './pages/Deployments';
 import { Domains } from './pages/Domains';
 import { Login } from './pages/Login';
 import { Logs } from './pages/Logs';
@@ -38,7 +37,6 @@ export function App() {
               <Route path="projects" element={<Projects />} />
               <Route path="projects/:id" element={<ProjectDetail />} />
               <Route path="containers" element={<Containers />} />
-              <Route path="deployments" element={<Deployments />} />
               <Route path="domains" element={<Domains />} />
               <Route path="backups" element={<Backups />} />
               <Route path="notifications" element={<Notifications />} />
