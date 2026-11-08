@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { CommandPalette } from './CommandPalette';
 import { Dropdown } from './Dropdown';
 import { Icon } from './Icon';
+import { useToast } from './Toast';
 import { useMetrics } from '../hooks/MetricsProvider';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -26,6 +28,9 @@ export function Layout(): JSX.Element {
   const location = useLocation();
   const page = findPage(location.pathname);
   const { status } = useMetrics();
+  const { user, logout } = useAuth();
+  const toast = useToast();
+  const navigate = useNavigate();
 
   const isMobile = useMediaQuery('(max-width: 900px)');
   const [collapsed, setCollapsed] = useLocalStorage('capturehost.sidebar.collapsed', false);
@@ -91,6 +96,16 @@ export function Layout(): JSX.Element {
           </nav>
 
           <div className="sidebar__footer">
+            <div className="user-badge" title={user ? `Signed in as ${user.username}` : 'Not signed in'}>
+              <span className="user-badge__avatar" aria-hidden="true">
+                {(user?.username ?? '?').slice(0, 2).toUpperCase()}
+              </span>
+              <span className="user-badge__text">
+                <span className="user-badge__name">{user?.username ?? 'account'}</span>
+                <span className="user-badge__role">{user?.totpEnabled ? '2FA enabled' : 'Admin'}</span>
+              </span>
+            </div>
+
             <div className="server-badge" title={`${hostname} — ${STATUS_TEXT[status]}`}>
               <span className="server-badge__dot" data-state={badgeState} aria-hidden="true" />
               <span className="server-badge__text">
@@ -157,18 +172,28 @@ export function Layout(): JSX.Element {
               </button>
 
               <Dropdown
-                trigger={<span aria-hidden="true">CH</span>}
+                trigger={<span aria-hidden="true">{(user?.username ?? '?').slice(0, 2).toUpperCase()}</span>}
                 triggerClassName="avatar-button"
-                triggerLabel="Account menu"
+                triggerLabel={`Account menu for ${user?.username ?? 'user'}`}
                 items={[
-                  { key: 'settings', label: 'Settings', icon: 'settings', onSelect: () => undefined },
+                  {
+                    key: 'settings',
+                    label: 'Security settings',
+                    icon: 'settings',
+                    onSelect: () => navigate('/settings'),
+                  },
                   {
                     key: 'signout',
                     label: 'Sign out',
                     icon: 'close',
                     danger: true,
                     dividerBefore: true,
-                    onSelect: () => undefined,
+                    onSelect: () => {
+                      void logout().then(() => {
+                        toast.push('Signed out', { tone: 'success' });
+                        navigate('/login', { replace: true });
+                      });
+                    },
                   },
                 ]}
               />

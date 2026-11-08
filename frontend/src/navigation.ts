@@ -68,16 +68,16 @@ export const NAV_PAGES: readonly NavPage[] = [
     label: 'Logs',
     subtitle: 'Audit trail of privileged actions',
     icon: 'logs',
-    ready: false,
+    ready: true,
     phase: 2,
   },
   {
     path: '/settings',
     label: 'Settings',
-    subtitle: 'Account, security and backups',
+    subtitle: 'Account, security and active sessions',
     icon: 'settings',
-    ready: false,
-    phase: 6,
+    ready: true,
+    phase: 2,
   },
 ];
 

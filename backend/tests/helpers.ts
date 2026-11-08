@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pino from 'pino';
 import type { AppConfig } from '../src/config.js';
+import { hashPassword } from '../src/crypto/password.js';
+import { createAdmin } from '../src/db/auth.repo.js';
 import { openDatabase, type Db } from '../src/db/connection.js';
 import { migrate } from '../src/db/migrate.js';
 
@@ -49,6 +51,28 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     metricsIntervalMs: 2000,
     metricsRetentionHours: 24,
     isProduction: false,
+    encryptionKey: Buffer.alloc(32, 7),
+    session: {
+      idleMs: 30 * 60_000,
+      absoluteMs: 12 * 60 * 60_000,
+      pendingMs: 5 * 60_000,
+      cookieName: 'capturehost_sid',
+      secure: false,
+    },
+    // Deliberately weak for speed; production defaults are in config.ts.
+    argon2: { memoryCost: 8192, timeCost: 2, parallelism: 1 },
+    login: { maxFailures: 3, windowMs: 10 * 60_000, lockoutMs: 5 * 60_000 },
+    trustProxy: false,
     ...overrides,
   };
 }
+
+export const TEST_USERNAME = 'admin';
+export const TEST_PASSWORD = 'correct-horse-battery-42';
+
+/** Creates the single admin row the way setup:admin would. */
+export async function seedAdmin(db: Db, password = TEST_PASSWORD): Promise<void> {
+  const hash = await hashPassword(password, testConfig().argon2);
+  createAdmin(db, { username: TEST_USERNAME, passwordHash: hash, now: Date.now() });
+}
+

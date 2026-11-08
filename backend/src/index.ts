@@ -1,3 +1,4 @@
+import { loadEnvFile } from './utils/env.js';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { openDatabase } from './db/connection.js';
@@ -9,6 +10,7 @@ import { createLogger } from './logger.js';
  * Nothing else lives here on purpose; all logic is in app.ts and below.
  */
 async function main(): Promise<void> {
+  loadEnvFile();
   const config = loadConfig();
   const logger = createLogger(config);
 

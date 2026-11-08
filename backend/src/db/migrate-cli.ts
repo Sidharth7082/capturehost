@@ -1,3 +1,4 @@
+import { loadEnvFile } from '../utils/env.js';
 import { loadConfig } from '../config.js';
 import { openDatabase } from './connection.js';
 import { migrate } from './migrate.js';
@@ -5,6 +6,7 @@ import { migrate } from './migrate.js';
 /**
  * `npm run migrate` — applies pending migrations without starting the server.
  */
+loadEnvFile();
 const config = loadConfig();
 const db = openDatabase(config.dbPath);
 const result = migrate(db);

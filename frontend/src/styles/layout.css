@@ -234,6 +234,52 @@
   font-size: var(--text-xs);
 }
 
+/* Signed-in account, above the host badge. */
+.user-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  background: var(--panel);
+  min-width: 0;
+}
+
+.user-badge__avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 10.5px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+}
+
+.user-badge__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.user-badge__name {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-badge__role {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
 .collapse-button {
   display: flex;
   align-items: center;
@@ -268,6 +314,7 @@
 .shell[data-collapsed='true'] .nav-item__label,
 .shell[data-collapsed='true'] .tag-soon,
 .shell[data-collapsed='true'] .server-badge__text,
+.shell[data-collapsed='true'] .user-badge__text,
 .shell[data-collapsed='true'] .collapse-button span,
 .shell[data-collapsed='true'] .sidebar__section {
   display: none;
@@ -280,7 +327,8 @@
 }
 
 .shell[data-collapsed='true'] .sidebar__brand,
-.shell[data-collapsed='true'] .server-badge {
+.shell[data-collapsed='true'] .server-badge,
+.shell[data-collapsed='true'] .user-badge {
   justify-content: center;
   padding-inline: 0;
 }
@@ -457,6 +505,7 @@
   .shell[data-collapsed='true'] .nav-item__label,
   .shell[data-collapsed='true'] .tag-soon,
   .shell[data-collapsed='true'] .server-badge__text,
+  .shell[data-collapsed='true'] .user-badge__text,
   .shell[data-collapsed='true'] .collapse-button span,
   .shell[data-collapsed='true'] .sidebar__section {
     display: revert;

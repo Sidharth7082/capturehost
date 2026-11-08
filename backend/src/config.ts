@@ -25,6 +25,34 @@ const EnvSchema = z.object({
 
   METRICS_INTERVAL_MS: z.coerce.number().int().min(500).max(60_000).default(2000),
   METRICS_RETENTION_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+
+  // ---- auth ----
+  // 32-byte key for AES-256-GCM. Base64 (44 chars) or hex (64 chars).
+  APP_ENCRYPTION_KEY: z.string().min(1, 'APP_ENCRYPTION_KEY is required (openssl rand -base64 32)'),
+
+  SESSION_IDLE_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
+  SESSION_ABSOLUTE_HOURS: z.coerce.number().int().min(1).max(720).default(12),
+  // Only true when the dashboard is served over HTTPS (Caddy, Phase 5).
+  SESSION_COOKIE_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+
+  ARGON2_MEMORY_KIB: z.coerce.number().int().min(8192).max(1_048_576).default(65_536),
+  ARGON2_TIME_COST: z.coerce.number().int().min(2).max(10).default(3),
+  ARGON2_PARALLELISM: z.coerce.number().int().min(1).max(8).default(1),
+
+  LOGIN_MAX_FAILURES: z.coerce.number().int().min(3).max(50).default(5),
+  LOGIN_WINDOW_MINUTES: z.coerce.number().int().min(1).max(120).default(10),
+  LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().min(1).max(120).default(15),
+
+  // Off by default. Turn on only when a trusted proxy (Caddy, a Cloudflare
+  // Tunnel) terminates TLS in front of this process, otherwise a client can
+  // forge X-Forwarded-For and dodge the IP rate limit.
+  TRUST_PROXY: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 export interface AppConfig {
@@ -37,6 +65,45 @@ export interface AppConfig {
   metricsIntervalMs: number;
   metricsRetentionHours: number;
   isProduction: boolean;
+
+  encryptionKey: Buffer;
+  session: {
+    idleMs: number;
+    absoluteMs: number;
+    cookieName: string;
+    secure: boolean;
+    /** Pending-2FA sessions are short lived: they are not a login yet. */
+    pendingMs: number;
+  };
+  argon2: {
+    memoryCost: number;
+    timeCost: number;
+    parallelism: number;
+  };
+  login: {
+    maxFailures: number;
+    windowMs: number;
+    lockoutMs: number;
+  };
+  trustProxy: boolean;
+}
+
+/**
+ * Accepts base64 or hex and enforces exactly 32 bytes, which is what
+ * AES-256-GCM requires. A silently truncated key would still "work" but with
+ * less entropy, so this is a hard failure.
+ */
+export function parseEncryptionKey(raw: string): Buffer {
+  const trimmed = raw.trim();
+  const hex = /^[0-9a-fA-F]{64}$/.test(trimmed) ? Buffer.from(trimmed, 'hex') : null;
+  const key = hex ?? Buffer.from(trimmed, 'base64');
+
+  if (key.length !== 32) {
+    throw new Error(
+      `APP_ENCRYPTION_KEY must decode to 32 bytes (got ${key.length}). Generate one with: openssl rand -base64 32`,
+    );
+  }
+  return key;
 }
 
 /** Origins are compared after normalisation so a trailing slash or caps never matters. */
@@ -62,6 +129,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (allowedOrigins.length === 0) {
     throw new Error('ALLOWED_ORIGINS must contain at least one origin');
   }
+
+  const secure = value.SESSION_COOKIE_SECURE;
+  // The __Host- prefix is only valid with Secure + Path=/ + no Domain, and it
+  // stops a subdomain from setting a cookie that shadows ours.
+  const cookieName = secure ? '__Host-capturehost_sid' : 'capturehost_sid';
   if (value.NODE_ENV === 'production' && value.HOST !== '127.0.0.1') {
     // Loud warning, not a hard failure: the operator may be behind a tunnel
     // that terminates locally and still needs a non-loopback bind.
@@ -81,5 +153,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     metricsIntervalMs: value.METRICS_INTERVAL_MS,
     metricsRetentionHours: value.METRICS_RETENTION_HOURS,
     isProduction: value.NODE_ENV === 'production',
+
+    encryptionKey: parseEncryptionKey(value.APP_ENCRYPTION_KEY),
+    session: {
+      idleMs: value.SESSION_IDLE_MINUTES * 60_000,
+      absoluteMs: value.SESSION_ABSOLUTE_HOURS * 60 * 60_000,
+      pendingMs: 5 * 60_000,
+      cookieName,
+      secure,
+    },
+    argon2: {
+      memoryCost: value.ARGON2_MEMORY_KIB,
+      timeCost: value.ARGON2_TIME_COST,
+      parallelism: value.ARGON2_PARALLELISM,
+    },
+    login: {
+      maxFailures: value.LOGIN_MAX_FAILURES,
+      windowMs: value.LOGIN_WINDOW_MINUTES * 60_000,
+      lockoutMs: value.LOGIN_LOCKOUT_MINUTES * 60_000,
+    },
+    trustProxy: value.TRUST_PROXY,
   };
 }

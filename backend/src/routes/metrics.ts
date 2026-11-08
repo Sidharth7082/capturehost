@@ -1,10 +1,13 @@
+import type {} from '@fastify/cookie';
 import type { AppInstance } from '../server.js';
 import { z } from 'zod';
 import type { AppConfig } from '../config.js';
 import type { Db } from '../db/connection.js';
 import { queryHistory, type MetricsSnapshot } from '../db/metrics.repo.js';
 import type { Logger } from '../logger.js';
+import type { AuthService } from '../services/auth.js';
 import type { MetricsSampler } from '../services/metrics.js';
+import type { SocketRegistry } from '../services/socketRegistry.js';
 import { isOriginAllowed } from '../utils/origin.js';
 
 /** Only these windows are offered in the UI, so only these are accepted. */
@@ -47,6 +50,8 @@ export interface MetricsRoutesDeps {
   sampler: MetricsSampler;
   config: AppConfig;
   logger: Logger;
+  auth: AuthService;
+  registry: SocketRegistry;
 }
 
 /** Minimal structural view of the ws socket, so this module needs no ws types. */
@@ -62,7 +67,8 @@ interface MetricsSocket {
 const WS_OPEN = 1;
 /** If a client is this far behind, drop a frame instead of growing memory. */
 const MAX_BUFFERED_BYTES = 1_000_000;
-const WS_ORIGIN_REJECTED = 1008; // policy violation
+/** 1008 = policy violation: close, and do not reconnect with the same creds. */
+const WS_POLICY_VIOLATION = 1008;
 
 /**
  * Fans one sampler result out to every connected socket.
@@ -140,11 +146,27 @@ export function registerMetricsRoutes(app: AppInstance, deps: MetricsRoutesDeps,
       // Log the attempt: an unexpected origin is either a misconfiguration or
       // someone trying to read this machine's metrics from another page.
       deps.logger.warn({ origin: origin ?? null }, 'rejected websocket: origin not allowed');
-      socket.close(WS_ORIGIN_REJECTED, 'origin not allowed');
+      socket.close(WS_POLICY_VIOLATION, 'origin not allowed');
+      return;
+    }
+
+    // The Origin check proves which page opened the socket, not who is behind
+    // it. The session cookie is httpOnly, so a script cannot fabricate one —
+    // but it can still be attached automatically by the browser, which is
+    // exactly why both checks are required.
+    const session = deps.auth.authenticate(request.cookies[deps.config.session.cookieName]);
+
+    if (!session || session.kind !== 'full') {
+      deps.logger.warn({ origin: origin ?? null }, 'rejected websocket: unauthenticated');
+      socket.close(WS_POLICY_VIOLATION, 'authentication required');
       return;
     }
 
     hub.add(socket as unknown as MetricsSocket);
+
+    // Tracked per session so logout/expiry can close this socket immediately.
+    deps.registry.add(session.sessionId, socket);
+    socket.on('close', () => deps.registry.remove(session.sessionId, socket));
 
     const send = (frame: WsFrame): void => {
       if (socket.readyState !== WS_OPEN) return;

@@ -23,7 +23,7 @@ export function registerErrorHandler(app: AppInstance, logger: Logger): void {
     if (error instanceof AppError) {
       logger.warn({ code: error.code, url: request.url, status: error.statusCode }, error.message);
       const body: ErrorBody = { error: error.message, code: error.code };
-      return reply.code(error.statusCode).send(body);
+      return reply.code(error.statusCode).headers(error.headers).send(body);
     }
 
     // 2. zod validation -> 400 with field-level detail (the client sent it).

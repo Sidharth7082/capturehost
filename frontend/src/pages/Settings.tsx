@@ -1,62 +1,71 @@
 import { type JSX } from 'react';
+import { useAuth } from '../auth/AuthContext';
 import { Card } from '../components/Card';
-import { PagePlaceholder } from './PagePlaceholder';
+import { StatusPill } from '../components/StatusPill';
+import { AuditSection } from './settings/AuditSection';
+import { PasswordSection } from './settings/PasswordSection';
+import { SessionsSection } from './settings/SessionsSection';
+import { TwoFactorSection } from './settings/TwoFactorSection';
+import { formatClockTime } from '../utils/format';
+import './Settings.css';
 
+/**
+ * Settings: the security surface for the single admin account.
+ *
+ * Layout follows the dashboard rhythm — a summary card, then a responsive grid
+ * of actionable panels. Backups and notifications stay labelled as future work
+ * rather than pretending to exist.
+ */
 export function Settings(): JSX.Element {
+  const { user } = useAuth();
+
   return (
-    <PagePlaceholder
-      phase={6}
-      title="Settings"
-      description="Account security, notification targets and backup schedule."
-    >
-      <div className="settings-grid">
-        <Card title="Account" subtitle="Single admin account">
-          <div className="settings-group">
-            <div className="settings-row">
-              <span className="settings-row__label">Username</span>
-              <span>admin</span>
-            </div>
-            <div className="settings-row">
-              <span className="settings-row__label">Password</span>
-              <span>argon2id · change in Phase 2</span>
-            </div>
-            <div className="settings-row">
-              <span className="settings-row__label">Two-factor</span>
-              <span>Not configured</span>
-            </div>
-          </div>
-        </Card>
+    <div className="settings-page">
+      <Card title="Account" subtitle="One admin account, created from the CLI">
+        <div className="security-row">
+          <span className="security-row__label">Username</span>
+          <span className="security-row__value">{user?.username ?? '—'}</span>
+        </div>
+        <div className="security-row">
+          <span className="security-row__label">Password hashing</span>
+          <span className="security-row__value">
+            <StatusPill label="argon2id · 64 MB · t=3" tone="success" dot={false} />
+          </span>
+        </div>
+        <div className="security-row">
+          <span className="security-row__label">Last password change</span>
+          <span className="security-row__value">
+            {user?.passwordChangedAt ? formatClockTime(user.passwordChangedAt) : 'never'}
+          </span>
+        </div>
+        <div className="security-row">
+          <span className="security-row__label">Two-factor</span>
+          <span className="security-row__value">
+            <StatusPill
+              label={user?.totpEnabled ? 'Enabled' : 'Disabled'}
+              tone={user?.totpEnabled ? 'success' : 'warning'}
+            />
+          </span>
+        </div>
+        <div className="security-row">
+          <span className="security-row__label">Recovery codes left</span>
+          <span className="security-row__value">{user?.recoveryCodesRemaining ?? 0}</span>
+        </div>
+      </Card>
 
-        <Card title="Backups" subtitle="SQLite snapshots">
-          <div className="settings-group">
-            <div className="settings-row">
-              <span className="settings-row__label">Schedule</span>
-              <span>Daily</span>
-            </div>
-            <div className="settings-row">
-              <span className="settings-row__label">Retention</span>
-              <span>7 days</span>
-            </div>
-            <div className="settings-row">
-              <span className="settings-row__label">Last backup</span>
-              <span>—</span>
-            </div>
-          </div>
-        </Card>
-
-        <Card title="Notifications" subtitle="Deployment failures">
-          <div className="settings-group">
-            <div className="settings-row">
-              <span className="settings-row__label">Channel</span>
-              <span>Not configured</span>
-            </div>
-            <div className="settings-row">
-              <span className="settings-row__label">On failure</span>
-              <span>Enabled</span>
-            </div>
-          </div>
-        </Card>
+      <div className="security-grid">
+        <PasswordSection />
+        <TwoFactorSection />
+        <SessionsSection />
+        <AuditSection />
       </div>
-    </PagePlaceholder>
+
+      <Card title="Backups & notifications" subtitle="Arriving in Phase 6">
+        <p className="form-hint" style={{ fontSize: 13 }}>
+          Scheduled SQLite snapshots and failure notifications are not wired up yet. Nothing here
+          is pretending to work: when they land, they will appear as real panels with real state.
+        </p>
+      </Card>
+    </div>
   );
 }

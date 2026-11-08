@@ -1,14 +1,22 @@
+import cookie from '@fastify/cookie';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import websocket from '@fastify/websocket';
 import type { AppConfig } from './config.js';
 import type { Db } from './db/connection.js';
 import { insertSample, pruneOlderThan } from './db/metrics.repo.js';
 import type { Logger } from './logger.js';
+import { registerAuthGuard } from './middleware/auth.js';
 import { registerErrorHandler } from './middleware/errorHandler.js';
+import { registerAuditRoutes } from './routes/audit.js';
+import { registerAuthRoutes } from './routes/auth.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { createMetricsHub, registerMetricsRoutes } from './routes/metrics.js';
 import { createServer, type AppInstance } from './server.js';
+import { AuthService } from './services/auth.js';
 import { createGpuProbe, type GpuProbe } from './services/gpu.js';
 import { MetricsSampler } from './services/metrics.js';
+import { SocketRegistry } from './services/socketRegistry.js';
 
 export const APP_VERSION = '0.1.0';
 
@@ -36,9 +44,50 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
 
   // Must be registered (and awaited) before any route with `websocket: true`.
   await app.register(websocket);
+  await app.register(cookie);
+
+  // Security headers. The dashboard's HTML is served by Vite/Caddy in later
+  // phases; these headers cover API responses and, once Caddy proxies through,
+  // the app shell as well.
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        // React sets inline style attributes (CSS custom properties on charts),
+        // which cannot be hashed; this is the one concession.
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:'],
+        fontSrc: ["'self'"],
+        connectSrc: ["'self'", 'ws:', 'wss:'],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  });
+
+  // CORS is only for the split dev setup (5173 -> 8787). Credentials are
+  // allowed solely for the configured origins, never `*`.
+  await app.register(cors, {
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, false);
+      const allowed = config.allowedOrigins.some((entry) => entry === origin.toLowerCase().replace(/\/+$/, ''));
+      return callback(null, allowed);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['content-type', 'x-csrf-token'],
+    maxAge: 600,
+  });
 
   const hub = createMetricsHub();
   const retentionMs = config.metricsRetentionHours * 60 * 60_000;
+
+  const registry = new SocketRegistry();
+  const auth = new AuthService({ db, config, logger });
 
   const sampler = new MetricsSampler({
     intervalMs: config.metricsIntervalMs,
@@ -65,9 +114,22 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     }
   });
 
+  // The guard is registered before any route so every /api route is covered
+  // by default. New endpoints are protected unless explicitly listed as public.
+  registerAuthGuard(app, {
+    auth,
+    allowedOrigins: config.allowedOrigins,
+    cookieName: config.session.cookieName,
+    logger,
+  });
+
   registerHealthRoutes(app, { db, version: APP_VERSION, startedAt });
-  registerMetricsRoutes(app, { db, sampler, config, logger }, hub);
+  registerAuthRoutes(app, { auth, registry, cookieName: config.session.cookieName });
+  registerAuditRoutes(app, { db });
+  registerMetricsRoutes(app, { db, sampler, config, logger, auth, registry }, hub);
   registerErrorHandler(app, logger);
+
+  let sessionPurgeTimer: NodeJS.Timeout | null = null;
 
   app.addHook('onReady', async () => {
     if (options.startSampler === false) return;
@@ -81,6 +143,22 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     }
 
     sampler.start();
+
+    // Expired sessions are removed on a timer, not only when someone happens
+    // to present the token, so a stolen cookie cannot sit idle in the table.
+    sessionPurgeTimer = setInterval(() => {
+      try {
+        const expired = auth.purgeExpired();
+        if (expired.length > 0) {
+          registry.closeSessions(expired, 'session expired');
+          logger.debug({ count: expired.length }, 'purged expired sessions');
+        }
+      } catch (error) {
+        logger.error({ err: error }, 'session purge failed');
+      }
+    }, 60_000);
+    sessionPurgeTimer.unref?.();
+
     logger.info(
       { intervalMs: config.metricsIntervalMs, retentionHours: config.metricsRetentionHours },
       'metrics sampler started',
@@ -89,6 +167,7 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
 
   app.addHook('onClose', async () => {
     sampler.stop();
+    if (sessionPurgeTimer) clearInterval(sessionPurgeTimer);
     hub.clear();
   });
 

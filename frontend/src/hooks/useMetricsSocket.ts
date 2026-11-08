@@ -72,9 +72,17 @@ export function useMetricsSocket(): UseMetricsSocketResult {
         }
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event: CloseEvent) => {
         socketRef.current = null;
         if (closedByUsRef.current) return;
+
+        // 1008 is the server refusing us deliberately — no session, or an
+        // Origin that is not allowlisted. Retrying would loop forever (and,
+        // after a logout, hammer a closed door), so stop and report offline.
+        if (event.code === 1008) {
+          setStatus('offline');
+          return;
+        }
 
         attemptsRef.current += 1;
         setAttempts(attemptsRef.current);
