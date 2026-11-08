@@ -63,6 +63,13 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     argon2: { memoryCost: 8192, timeCost: 2, parallelism: 1 },
     login: { maxFailures: 3, windowMs: 10 * 60_000, lockoutMs: 5 * 60_000 },
     trustProxy: false,
+    docker: {
+      hostUrl: 'http://127.0.0.1:2375',
+      timeoutMs: 2000,
+      statsIntervalMs: 2500,
+      protectedContainers: ['capturehost-socket-proxy'],
+      actionsPerMinute: 30,
+    },
     ...overrides,
   };
 }

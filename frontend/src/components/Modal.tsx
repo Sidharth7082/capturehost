@@ -22,12 +22,18 @@ export function Modal({ open, title, onClose, children, footer }: ModalProps): J
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
+  // Keep the latest callback in a ref: `onClose` is usually an inline arrow, so
+  // depending on it would re-run the focus effect on every render — which
+  // steals focus from any input inside the dialog after the first keystroke.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
 
     previouslyFocused.current = document.activeElement as HTMLElement | null;
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseRef.current();
     };
 
     document.addEventListener('keydown', onKeyDown);
@@ -44,7 +50,7 @@ export function Modal({ open, title, onClose, children, footer }: ModalProps): J
       document.body.style.overflow = overflow;
       previouslyFocused.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

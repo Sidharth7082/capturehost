@@ -53,6 +53,18 @@ const EnvSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
+
+  // ---- docker ----
+  // Always the socket proxy, never a raw socket path. See docker-compose.dev.yml.
+  DOCKER_HOST_URL: z.string().url().default('http://127.0.0.1:2375'),
+  // Must exceed the stop grace period below, or `docker stop` looks like a
+  // hung connection to dockerode while Docker is still waiting for SIGTERM.
+  DOCKER_TIMEOUT_MS: z.coerce.number().int().min(2000).max(120_000).default(30_000),
+  DOCKER_STATS_INTERVAL_MS: z.coerce.number().int().min(1000).max(10_000).default(2500),
+  // Extra container names/ids that must never be stopped from the UI. The
+  // socket proxy is protected by its label; this is for anything else.
+  DOCKER_PROTECTED_CONTAINERS: z.string().default('capturehost-socket-proxy'),
+  DOCKER_ACTIONS_PER_MINUTE: z.coerce.number().int().min(1).max(600).default(30),
 });
 
 export interface AppConfig {
@@ -86,6 +98,14 @@ export interface AppConfig {
     lockoutMs: number;
   };
   trustProxy: boolean;
+
+  docker: {
+    hostUrl: string;
+    timeoutMs: number;
+    statsIntervalMs: number;
+    protectedContainers: string[];
+    actionsPerMinute: number;
+  };
 }
 
 /**
@@ -143,6 +163,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
+  if (/^(unix:|npipe:|\/)/i.test(value.DOCKER_HOST_URL)) {
+    // The whole point of Phase 3 is that the app never holds the Docker socket.
+    // Refusing to start would be hostile to an operator who knows better, so
+    // this is a loud warning instead — but it must not pass silently.
+    console.warn(
+      '[config] DOCKER_HOST_URL points at a socket, not the socket proxy. ' +
+        'Anyone who compromises the dashboard then has root on this machine. ' +
+        'Use the tecnativa/docker-socket-proxy from docker-compose.dev.yml (http://127.0.0.1:2375).',
+    );
+  }
+
   return {
     nodeEnv: value.NODE_ENV,
     logLevel: value.LOG_LEVEL,
@@ -173,5 +204,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       lockoutMs: value.LOGIN_LOCKOUT_MINUTES * 60_000,
     },
     trustProxy: value.TRUST_PROXY,
+
+    docker: {
+      hostUrl: value.DOCKER_HOST_URL,
+      timeoutMs: value.DOCKER_TIMEOUT_MS,
+      statsIntervalMs: value.DOCKER_STATS_INTERVAL_MS,
+      protectedContainers: value.DOCKER_PROTECTED_CONTAINERS.split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0),
+      actionsPerMinute: value.DOCKER_ACTIONS_PER_MINUTE,
+    },
   };
 }

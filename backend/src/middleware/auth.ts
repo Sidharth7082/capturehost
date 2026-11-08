@@ -1,4 +1,5 @@
 import type {} from '@fastify/cookie';
+import type { AppConfig } from '../config.js';
 import type { Logger } from '../logger.js';
 import type { AppInstance } from '../server.js';
 import type { AuthContext, AuthService } from '../services/auth.js';
@@ -91,4 +92,50 @@ export function requireAuth(request: { auth?: AuthContext }): AuthContext {
   // the client would log the user out for a typo.
   if (!request.auth) throw new AppError(401, 'unauthenticated', 'Authentication required');
   return request.auth;
+}
+
+export type UpgradeResult =
+  | { ok: true; session: AuthContext }
+  | { ok: false; reason: 'origin' | 'unauthenticated' };
+
+export interface UpgradeDeps {
+  config: AppConfig;
+  auth: AuthService;
+  logger: Logger;
+}
+
+/**
+ * Shared authorisation for WebSocket upgrades.
+ *
+ * Every socket gets the same two questions, in this order:
+ *   1. Which page opened this? (Origin allowlist — browsers send it, and the
+ *      same-origin policy does not apply to WebSockets)
+ *   2. Who is behind it? (session cookie — httpOnly, so a script cannot forge
+ *      one, but the browser will attach a real one to any page on this origin)
+ *
+ * Callers close the socket themselves so the reason can be logged next to the
+ * route that refused it.
+ */
+export function authenticateUpgrade(
+  request: {
+    headers: { origin?: string };
+    cookies: Record<string, string | undefined>;
+  },
+  deps: UpgradeDeps,
+): UpgradeResult {
+  const origin = request.headers.origin;
+
+  if (!isOriginAllowed(origin, deps.config.allowedOrigins)) {
+    deps.logger.warn({ origin: origin ?? null }, 'rejected websocket: origin not allowed');
+    return { ok: false, reason: 'origin' };
+  }
+
+  const session = deps.auth.authenticate(request.cookies[deps.config.session.cookieName]);
+
+  if (!session || session.kind !== 'full') {
+    deps.logger.warn({ origin: origin ?? null }, 'rejected websocket: unauthenticated');
+    return { ok: false, reason: 'unauthenticated' };
+  }
+
+  return { ok: true, session };
 }

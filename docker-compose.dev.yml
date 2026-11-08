@@ -1,0 +1,68 @@
+# CaptureHost — local development stack.
+#
+# The backend NEVER sees /var/run/docker.sock. Only this proxy container mounts
+# it, and the mount is read-only. The proxy exposes a hand-picked subset of the
+# Docker HTTP API so a bug in the dashboard cannot reach the parts we do not use
+# (exec into containers, secrets, swarm, plugins, system prune, build...).
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml down
+
+services:
+  docker-socket-proxy:
+    # Pinned: an unpinned proxy silently changes what it allows.
+    image: tecnativa/docker-socket-proxy:0.2.0
+    container_name: capturehost-socket-proxy
+    restart: unless-stopped
+
+    environment:
+      # ---- enabled: the minimum the dashboard actually needs --------------
+      # CONTAINERS: list, inspect, start, stop, restart and remove containers.
+      #             This is the whole feature set of Phase 3.
+      CONTAINERS: 1
+      # IMAGES:     container inspect includes image metadata; without this the
+      #             repo tags and sizes come back empty.
+      IMAGES: 1
+      # INFO:       GET /version and /info — shown in the "engine version" card
+      #             and used to prove the engine is reachable.
+      INFO: 1
+      # EVENTS:     read-only event stream. Used to notice a container dying
+      #             between two polls instead of waiting for the next one.
+      EVENTS: 1
+      # PING:       GET /_ping — the cheapest possible health probe.
+      PING: 1
+      # POST:       every mutating call is a POST or a DELETE at the HTTP level
+      #             (start/stop/restart/remove). Without it the dashboard is
+      #             read-only. It is still scoped by the flags above: POST on
+      #             /exec, /build or /volumes stays closed.
+      POST: 1
+
+      # ---- explicitly closed -------------------------------------------
+      EXEC: 0 #      no shell inside containers (the classic privilege escalation)
+      VOLUMES: 0 #   no creating/deleting host volumes
+      NETWORKS: 0 #  no rewiring host networking
+      SECRETS: 0 #   no docker secrets
+      SERVICES: 0 #  no swarm services
+      SWARM: 0 #     no swarm at all
+      AUTH: 0 #      no /auth (registry credentials)
+      BUILD: 0 #     no image builds from this socket (Phase 4 builds separately)
+      COMMIT: 0 #    no committing containers to images
+      CONFIGS: 0 #   no docker configs
+      PLUGINS: 0 #   no plugin installs
+      SYSTEM: 0 #    no /system endpoints — prune lives here
+      TASKS: 0 #     no swarm tasks
+      NODES: 0 #     no swarm nodes
+
+    volumes:
+      # Read-only: the proxy reads the socket, it must never rewrite the file.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    ports:
+      # Loopback only. Publishing on 0.0.0.0 would expose a password-less
+      # Docker API to the network — that is root on the host.
+      - "127.0.0.1:2375:2375"
+
+    labels:
+      # The dashboard must never offer to stop the thing that gives it Docker
+      # access. Enforced again in the backend, not just hidden in the UI.
+      capturehost.protected: "true"

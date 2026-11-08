@@ -10,13 +10,17 @@ import { registerAuthGuard } from './middleware/auth.js';
 import { registerErrorHandler } from './middleware/errorHandler.js';
 import { registerAuditRoutes } from './routes/audit.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerDockerRoutes } from './routes/docker.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { createMetricsHub, registerMetricsRoutes } from './routes/metrics.js';
 import { createServer, type AppInstance } from './server.js';
 import { AuthService } from './services/auth.js';
+import { DockerService } from './services/docker.js';
+import { DockerStatsPoller } from './services/dockerStats.js';
 import { createGpuProbe, type GpuProbe } from './services/gpu.js';
 import { MetricsSampler } from './services/metrics.js';
 import { SocketRegistry } from './services/socketRegistry.js';
+import { SessionRateLimiter } from './utils/rateLimit.js';
 
 export const APP_VERSION = '0.1.0';
 
@@ -28,6 +32,8 @@ export interface BuildAppOptions {
   gpuProbe?: GpuProbe;
   /** Tests that only care about routes can disable the live sampler. */
   startSampler?: boolean;
+  /** Injected in tests: a stub with the DockerService surface. */
+  dockerService?: DockerService;
 }
 
 /**
@@ -88,6 +94,14 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
 
   const registry = new SocketRegistry();
   const auth = new AuthService({ db, config, logger });
+  const docker = options.dockerService ?? new DockerService({ config, logger });
+  const statsPoller = new DockerStatsPoller({
+    docker,
+    intervalMs: config.docker.statsIntervalMs,
+    logger,
+  });
+  // Actions (start/stop/restart/remove) are budgeted per session.
+  const dockerActions = new SessionRateLimiter(config.docker.actionsPerMinute);
 
   const sampler = new MetricsSampler({
     intervalMs: config.metricsIntervalMs,
@@ -127,6 +141,17 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   registerAuthRoutes(app, { auth, registry, cookieName: config.session.cookieName });
   registerAuditRoutes(app, { db });
   registerMetricsRoutes(app, { db, sampler, config, logger, auth, registry }, hub);
+  registerDockerRoutes(app, {
+    docker,
+    statsPoller,
+    statsIntervalMs: config.docker.statsIntervalMs,
+    registry,
+    db,
+    actions: dockerActions,
+    config,
+    auth,
+    logger,
+  });
   registerErrorHandler(app, logger);
 
   let sessionPurgeTimer: NodeJS.Timeout | null = null;
@@ -167,6 +192,7 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
 
   app.addHook('onClose', async () => {
     sampler.stop();
+    statsPoller.stop();
     if (sessionPurgeTimer) clearInterval(sessionPurgeTimer);
     hub.clear();
   });

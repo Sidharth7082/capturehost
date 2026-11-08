@@ -4,7 +4,7 @@ Self-hosted hosting dashboard for a single Arch Linux machine: live system
 metrics, Docker control, GitHub deployments and subdomains with automatic
 HTTPS — one web UI, no cloud account.
 
-**Status: Phase 2 (authentication) complete.** Later phases are listed in
+**Status: Phase 3 (Docker management) complete.** Later phases are listed in
 [PROGRESS.md](./PROGRESS.md), which is the authoritative project state.
 
 ## Stack
@@ -77,6 +77,42 @@ cd frontend && npm run typecheck && npm run build
 ```bash
 cd backend  && npm run build && npm start     # dist/index.js, still 127.0.0.1
 cd frontend && npm run build                  # static files in dist/
+```
+
+## Docker access (privileged, proxied)
+
+The dashboard can start, stop, restart and remove containers — so it must not
+hold the Docker socket. Only a proxy container does, mounted read-only:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d     # socket proxy on 127.0.0.1:2375
+```
+
+`tecnativa/docker-socket-proxy` is pinned and exposes exactly what the UI needs
+(`CONTAINERS`, `IMAGES`, `INFO`, `EVENTS`, `PING`, `POST`). Everything else —
+`EXEC`, `VOLUMES`, `NETWORKS`, `SECRETS`, `SYSTEM`, `BUILD`, `SWARM`, `PLUGINS`
+— stays at 0, so a compromise of the dashboard cannot exec into a container or
+prune the host.
+
+Three things are enforced in the backend, not just hidden in the UI:
+
+- the proxy container (labelled `capturehost.protected=true`) and anything in
+  `DOCKER_PROTECTED_CONTAINERS` cannot be stopped, restarted or removed (403,
+  audited);
+- a running container cannot be removed (409) — stop it first;
+- `container inspect` returns environment **key names**, never values.
+
+To verify the backend has no socket access:
+
+```bash
+PID=$(pgrep -f "index[.]ts"); ls -l /proc/$PID/fd | grep -c docker.sock   # -> 0
+docker inspect capturehost-socket-proxy --format '{{range .Mounts}}{{.Source}} rw={{.RW}}{{end}}'   # -> rw=false
+```
+
+Live end-to-end check (creates and removes only its own labelled container):
+
+```bash
+DOCKER_API_PASSWORD='…' node scripts/integration-docker.mjs
 ```
 
 ## Security model (short version)

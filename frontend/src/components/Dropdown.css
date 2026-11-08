@@ -48,6 +48,16 @@
   color: var(--danger);
 }
 
+.dropdown__item:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.dropdown__item:disabled:hover {
+  background: transparent;
+  color: var(--text-faint);
+}
+
 .dropdown__item svg {
   flex: 0 0 auto;
   width: 15px;

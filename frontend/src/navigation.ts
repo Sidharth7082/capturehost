@@ -36,7 +36,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     label: 'Containers',
     subtitle: 'Docker workloads on this host',
     icon: 'containers',
-    ready: false,
+    ready: true,
     phase: 3,
   },
   {

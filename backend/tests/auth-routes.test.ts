@@ -31,6 +31,13 @@ const PROTECTED_ROUTES: ReadonlyArray<[string, string]> = [
   ['POST', '/api/auth/2fa/setup'],
   ['POST', '/api/auth/2fa/confirm'],
   ['POST', '/api/auth/2fa/disable'],
+  ['GET', '/api/docker/status'],
+  ['GET', '/api/docker/containers'],
+  ['GET', '/api/docker/containers/abcdef1234567890'],
+  ['POST', '/api/docker/containers/abcdef1234567890/start'],
+  ['POST', '/api/docker/containers/abcdef1234567890/stop'],
+  ['POST', '/api/docker/containers/abcdef1234567890/restart'],
+  ['DELETE', '/api/docker/containers/abcdef1234567890'],
 ];
 
 describe('authentication gate', () => {

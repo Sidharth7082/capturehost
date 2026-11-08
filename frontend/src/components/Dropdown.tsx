@@ -8,6 +8,8 @@ export interface DropdownItem {
   icon?: IconName;
   danger?: boolean;
   dividerBefore?: boolean;
+  /** Rendered but not selectable — e.g. Stop on a stopped container. */
+  disabled?: boolean;
   onSelect: () => void;
 }
 
@@ -79,7 +81,9 @@ export function Dropdown({
                 role="menuitem"
                 className="dropdown__item"
                 data-danger={item.danger ? 'true' : undefined}
+                disabled={item.disabled === true}
                 onClick={() => {
+                  if (item.disabled) return;
                   setOpen(false);
                   item.onSelect();
                 }}

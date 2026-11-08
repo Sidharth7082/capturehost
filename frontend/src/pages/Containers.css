@@ -1,0 +1,367 @@
+.containers-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Banner shown when the socket proxy is unreachable: the dashboard still
+   works, this page just cannot talk to Docker. */
+.docker-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-radius: var(--radius-card);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 13px;
+}
+
+.docker-banner__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.docker-banner__title {
+  font-weight: var(--weight-semibold);
+}
+
+.docker-banner__body {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.docker-banner__command {
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  width: fit-content;
+}
+
+.container-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.container-name__text {
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.container-name__meta {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 32ch;
+}
+
+.lock-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--info-soft);
+  color: var(--info);
+  flex: 0 0 auto;
+}
+
+.meter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 96px;
+}
+
+.meter__track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 4px;
+  min-width: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--raised);
+  overflow: hidden;
+}
+
+.meter__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transition: width 400ms ease;
+}
+
+.meter__fill[data-tone='warning'] {
+  background: var(--warning);
+}
+
+.meter__fill[data-tone='danger'] {
+  background: var(--danger);
+}
+
+.meter__value {
+  flex: 0 0 auto;
+  min-width: 44px;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.status-cell__text {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 28ch;
+}
+
+.container-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ---- log viewer ---- */
+.logs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.logs-toolbar__tails {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  background: var(--bg);
+}
+
+.logs-tail {
+  padding: 3px 8px;
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.logs-tail[data-active='true'] {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.logs-toolbar__meta {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.logs-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--warning);
+  font-size: var(--text-sm);
+}
+
+.logs-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  background: #08090f;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: #cdd3e0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.logs-line {
+  padding: 1px 0;
+  border-left: 2px solid transparent;
+  padding-left: 8px;
+}
+
+.logs-line:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-left-color: var(--accent);
+}
+
+.logs-empty {
+  padding: var(--space-6);
+  color: var(--text-faint);
+  text-align: center;
+  font-family: var(--font-sans);
+}
+
+.logs-jump {
+  position: absolute;
+  right: var(--space-6);
+  bottom: var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--text-xs);
+  box-shadow: var(--shadow-md);
+}
+
+/* ---- inspect ---- */
+.inspect {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.inspect__heading {
+  margin-bottom: var(--space-1);
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.inspect-field {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+
+.inspect-field:last-child {
+  border-bottom: none;
+}
+
+.inspect-field__label {
+  flex: 0 0 auto;
+  min-width: 96px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inspect-field__value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.inspect__empty {
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+
+.inspect-env {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inspect-env__key {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--raised);
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+/* ---- confirm dialog ---- */
+.confirm-text {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.confirm-danger {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--danger);
+  background: var(--danger-soft);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+@media (max-width: 900px) {
+  .containers-page .page-toolbar__search {
+    max-width: none;
+    flex: 1 1 100%;
+  }
+}
+
+/*
+ * Phones: the table is allowed to scroll sideways, but the row actions must
+ * stay reachable. Pinning the last column keeps Start/Stop/Logs one tap away
+ * instead of hidden past the right edge.
+ */
+@media (max-width: 640px) {
+  .containers-page .container-name {
+    min-width: 0;
+  }
+
+  .containers-page .container-name .cell-primary {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  /* The pill alone is enough on a phone; the extra text pushes the table wide. */
+  .containers-page .status-cell__text {
+    display: none;
+  }
+
+  .containers-page .data-table th:last-child,
+  .containers-page .data-table td:last-child {
+    position: sticky;
+    right: 0;
+    background: var(--panel);
+    box-shadow: -8px 0 12px -8px rgba(0, 0, 0, 0.6);
+  }
+
+  .containers-page .data-table tbody tr:hover td:last-child {
+    background: var(--raised);
+  }
+}

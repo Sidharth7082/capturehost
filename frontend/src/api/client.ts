@@ -283,3 +283,125 @@ export function disableTotp(password: string, code: string): Promise<{ ok: boole
 export function fetchAudit(limit = 10, offset = 0): Promise<AuditPageResponse> {
   return apiFetch<AuditPageResponse>(`/api/audit?limit=${limit}&offset=${offset}`);
 }
+
+// ---------------------------------------------------------------- docker API
+
+export interface ContainerPort {
+  privatePort: number;
+  publicPort: number | null;
+  type: string;
+  ip: string | null;
+}
+
+export interface ContainerStatsSample {
+  id: string;
+  cpuPct: number;
+  memUsedBytes: number;
+  memLimitBytes: number;
+  memPct: number;
+  netRxBytes: number;
+  netTxBytes: number;
+  pids: number;
+}
+
+export type ContainerState = 'running' | 'exited' | 'created' | 'restarting' | 'paused' | 'removing' | 'dead' | 'unknown';
+
+export interface ContainerSummary {
+  id: string;
+  shortId: string;
+  name: string;
+  image: string;
+  imageId: string;
+  state: ContainerState;
+  statusText: string;
+  ports: ContainerPort[];
+  createdAt: number;
+  startedAt: number | null;
+  labels: Record<string, string>;
+  protected: boolean;
+  protectedReason: string | null;
+  stats: ContainerStatsSample | null;
+}
+
+export interface DockerStatus {
+  available: boolean;
+  version: string | null;
+  apiVersion: string | null;
+  os: string | null;
+  containersRunning: number;
+  containersTotal: number;
+  images: number | null;
+  error: string | null;
+  hostUrl: string;
+}
+
+export interface ContainerInspect {
+  id: string;
+  shortId: string;
+  name: string;
+  image: string;
+  imageId: string;
+  created: number;
+  state: {
+    status: string;
+    running: boolean;
+    restarting: boolean;
+    paused: boolean;
+    exitCode: number;
+    startedAt: string | null;
+    finishedAt: string | null;
+  };
+  config: {
+    envKeys: string[];
+    entrypoint: string | null;
+    cmd: string[];
+    workingDir: string;
+    restartPolicy: { name: string; maximumRetryCount: number };
+    exposedPorts: string[];
+    labels: Record<string, string>;
+  };
+  ports: ContainerPort[];
+  mounts: { type: string; source: string; destination: string; mode: string; readOnly: boolean }[];
+  networks: { name: string; ipAddress: string | null; gateway: string | null }[];
+  protected: boolean;
+  protectedReason: string | null;
+}
+
+export function fetchDockerStatus(): Promise<DockerStatus> {
+  return apiFetch<DockerStatus>('/api/docker/status');
+}
+
+export function fetchContainers(): Promise<{
+  available: boolean;
+  containers: ContainerSummary[];
+  refreshAt: number;
+}> {
+  return apiFetch('/api/docker/containers');
+}
+
+export function fetchContainerInspect(id: string): Promise<ContainerInspect> {
+  return apiFetch<ContainerInspect>(`/api/docker/containers/${encodeURIComponent(id)}`);
+}
+
+export function containerAction(
+  id: string,
+  action: 'start' | 'stop' | 'restart',
+): Promise<{ ok: boolean; container: ContainerSummary }> {
+  return apiFetch(`/api/docker/containers/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+}
+
+export function removeContainer(id: string): Promise<{ ok: boolean; removed: { id: string; name: string } }> {
+  return apiFetch(`/api/docker/containers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/** Live log stream for one container. */
+export function dockerLogsSocketUrl(id: string, tail: number): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/ws/docker/logs/${encodeURIComponent(id)}?tail=${tail}`;
+}
+
+/** Shared stats stream for every running container. */
+export function dockerStatsSocketUrl(): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/ws/docker/stats`;
+}
