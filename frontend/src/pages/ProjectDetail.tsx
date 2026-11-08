@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
+import { fetchProjectDomains, type ProjectDomain } from '../api/domains';
 import {
   ACTIVE_STATUSES,
   cancelDeployment,
@@ -241,6 +242,15 @@ function OverviewTab({
   onOpenLog: (deploymentId: number) => void;
 }): JSX.Element {
   const latest = deployments[0] ?? null;
+  const [domains, setDomains] = useState<(ProjectDomain & { url: string })[]>([]);
+
+  useEffect(() => {
+    void fetchProjectDomains(project.id)
+      .then(({ domains: list }) => setDomains(list as (ProjectDomain & { url: string })[]))
+      .catch(() => setDomains([]));
+  }, [project.id]);
+
+  const primary = domains.find((domain) => domain.enabled) ?? domains[0] ?? null;
 
   return (
     <div className="detail-grid">
@@ -254,6 +264,20 @@ function OverviewTab({
           <dd className="mono">{project.hostPort ? `127.0.0.1:${project.hostPort}` : 'not assigned yet'}</dd>
           <dt>Network</dt>
           <dd className="mono">capturehost-apps</dd>
+          <dt>URL</dt>
+          <dd>
+            {primary ? (
+              <a className="mono-link" href={primary.url} target="_blank" rel="noreferrer">
+                {primary.url}
+              </a>
+            ) : project.url ? (
+              <a className="mono-link" href={project.url} target="_blank" rel="noreferrer">
+                {project.url}
+              </a>
+            ) : (
+              'not deployed yet'
+            )}
+          </dd>
         </dl>
       </Card>
 

@@ -41,6 +41,15 @@ const run = promisify(execFile);
 
 export type LogLine = (line: string) => void;
 
+/**
+ * The slice of the Caddy service the pipeline needs. Kept narrow (and optional)
+ * so the pipeline tests do not need a controller.
+ */
+export interface DomainRouter {
+  applyRoutesForProject(projectId: number, port: number): Promise<void>;
+  verifyHostname(hostname: string): Promise<{ ok: boolean; status: number | null; error: string | null }>;
+}
+
 export interface DeploymentServiceDeps {
   db: Db;
   config: AppConfig;
@@ -49,6 +58,8 @@ export interface DeploymentServiceDeps {
   client: Docker;
   /** Called with every log line so a WS subscriber can stream it live. */
   onLog?: (deploymentId: number, line: string) => void;
+  /** Optional: when present, domains follow the blue/green swap. */
+  caddy?: DomainRouter;
 }
 
 interface QueueEntry {
@@ -72,6 +83,7 @@ export class DeploymentService {
   private cancelled = new Set<number>();
   private aborters = new Map<number, () => void>();
   private onLog?: (deploymentId: number, line: string) => void;
+  private readonly caddy?: DomainRouter;
 
   constructor(deps: DeploymentServiceDeps) {
     this.db = deps.db;
@@ -79,6 +91,7 @@ export class DeploymentService {
     this.logger = deps.logger;
     this.client = deps.client;
     this.onLog = deps.onLog;
+    this.caddy = deps.caddy;
   }
 
   isBusy(): boolean {
@@ -395,6 +408,12 @@ export class DeploymentService {
 
     await this.waitForHealth(name, hostPort, project.health_path, entry.deploymentId);
 
+    // ---- domains ----
+    // The route has to move to the new port while the old container is still
+    // serving: if Caddy rejects it, we revert the route and keep the old
+    // container alive instead of leaving the site pointed at a dead port.
+    await this.moveDomains(project, hostPort, entry.deploymentId);
+
     // ---- swap ----
     const oldContainerId = project.container_id;
     setProjectRuntime(
@@ -437,6 +456,45 @@ export class DeploymentService {
   }
 
   // ------------------------------------------------------------- primitives
+
+  /**
+   * Points every enabled domain at the new port and proves it answers.
+   * Throws (which fails the deployment) when Caddy or the route misbehaves;
+   * the caller has already reverted the upstream by then.
+   */
+  private async moveDomains(project: ProjectRow, newPort: number, deploymentId: number): Promise<void> {
+    if (!this.caddy) return;
+
+    const domains = this.db
+      .prepare('SELECT id, hostname FROM domains WHERE project_id = ? AND enabled = 1')
+      .all(project.id) as { id: number; hostname: string }[];
+
+    if (domains.length === 0) return;
+
+    try {
+      await this.caddy.applyRoutesForProject(project.id, newPort);
+
+      for (const domain of domains) {
+        const probe = await this.caddy.verifyHostname(domain.hostname);
+        if (!probe.ok) {
+          throw new Error(
+            `${domain.hostname} did not answer through Caddy (${probe.error ?? `HTTP ${probe.status}`})`,
+          );
+        }
+      }
+
+      this.log(deploymentId, `Domains updated: ${domains.map((domain) => domain.hostname).join(', ')}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'domain update failed';
+
+      // Put the routes back on the container that is still running.
+      if (project.host_port !== null) {
+        await this.caddy.applyRoutesForProject(project.id, project.host_port).catch(() => undefined);
+      }
+
+      throw new Error(`Domain update failed, keeping the previous container: ${message}`);
+    }
+  }
 
   private checkpoint(deploymentId: number): void {
     if (this.isCancelled(deploymentId)) {

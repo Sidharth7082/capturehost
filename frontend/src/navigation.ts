@@ -50,9 +50,9 @@ export const NAV_PAGES: readonly NavPage[] = [
   {
     path: '/domains',
     label: 'Domains',
-    subtitle: 'Subdomains and automatic HTTPS',
+    subtitle: 'Subdomains routed through Caddy',
     icon: 'domains',
-    ready: false,
+    ready: true,
     phase: 5,
   },
   {

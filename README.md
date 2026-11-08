@@ -172,6 +172,55 @@ cd ~/capturehost/backend && node scripts/integration-deploy.mjs
 Rollback re-runs the previous successful image without rebuilding. Images are
 tagged `capturehost/<slug>:<short-sha>` and pruned to `DEPLOY_KEEP_IMAGES` (3).
 
+## Domains and Caddy
+
+Deployed apps are reached through Caddy. The backend never edits
+`/etc/caddy/Caddyfile`; it writes only routes tagged `capturehost-<id>` through
+the admin API and re-applies them from SQLite on startup and every
+`CADDY_SYNC_INTERVAL_MS` (an API-only change is lost when Caddy reloads).
+
+```bash
+# install (needs sudo) and start the base config
+sudo pacman -S --needed caddy
+sudo install -o root -g root -m 644 ~/capturehost/deploy/caddy/Caddyfile /etc/caddy/Caddyfile
+sudo systemctl enable --now caddy
+
+# or, for a user-local test instance with no sudo:
+caddy run --config ~/capturehost/deploy/caddy/Caddyfile --adapter caddyfile
+```
+
+| Mode | What runs | Use for |
+|---|---|---|
+| `local` (default) | `*.localhost` on `127.0.0.1:8080`, plain HTTP | this laptop, no DNS |
+| `tunnel` | same listener, Cloudflare Tunnel terminates HTTPS | sharing privately |
+| `public` | direct 80/443 + automatic HTTPS (**UNTESTED**) | only with a real domain and an open inbound port |
+
+Attach a hostname on **Domains → Add domain** (`hello.capturehost.localhost`).
+`*.localhost` resolves to this machine in every browser, so no DNS setup is
+needed; open `http://hello.capturehost.localhost:8080`.
+
+Safety rules enforced in code (`services/domains.ts`), with tests:
+
+- an upstream is only ever `127.0.0.1:<app port>` of that project's live
+  container — 2375 (Docker proxy), 2019 (admin API), 8787 (backend), 8090
+  (dashboard) and anything outside `CONTAINER_PORT_RANGE_*` are refused;
+- hostnames must be lowercase RFC 1123 inside `ALLOWED_BASE_DOMAINS`, with no
+  wildcards, IPs, underscores or trailing dot, and cannot shadow the dashboard
+  or the webhook gateway;
+- the dashboard lives on its own loopback listener and is never served by the
+  apps listener.
+
+On a deploy the route is moved to the new port **before** the old container is
+stopped, and the hostname is probed through Caddy. If either step fails the
+route is reverted and the old container keeps serving — the deployment is
+marked failed.
+
+### Optional public webhook gateway
+
+`WEBHOOK_PUBLIC_HOST` (off by default) lets a tunnel expose exactly
+`POST /api/webhooks/github/<digits>` to the internet; everything else on that
+host must 404. The HMAC signature is still verified by the backend.
+
 ## Security model (short version)
 
 - The backend binds **127.0.0.1 only**. Expose it with Tailscale or a

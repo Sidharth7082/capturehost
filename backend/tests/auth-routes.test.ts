@@ -53,6 +53,14 @@ const PROTECTED_ROUTES: ReadonlyArray<[string, string]> = [
   ['DELETE', '/api/projects/1/env/API_KEY'],
   ['GET', '/api/projects/1/webhook'],
   ['GET', '/api/project-ports'],
+  // Phase 5
+  ['GET', '/api/domains'],
+  ['POST', '/api/domains'],
+  ['PATCH', '/api/domains/1'],
+  ['DELETE', '/api/domains/1'],
+  ['POST', '/api/domains/1/check'],
+  ['GET', '/api/projects/1/domains'],
+  ['GET', '/api/caddy/status'],
 ];
 
 describe('authentication gate', () => {
@@ -176,6 +184,29 @@ describe('csrf', () => {
     const { cookie } = await harness.login();
     const response = await harness.app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } });
     expect(response.statusCode).toBe(200);
+  });
+});
+
+describe('proxy trust', () => {
+  it('ignores X-Forwarded-For from an untrusted address (spoofed lockout key)', async () => {
+    // maxFailures is 3 in the test config; the 3rd failure locks the key.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await harness.app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { username: 'admin', password: 'definitely-not-it-1' },
+        remoteAddress: '203.0.113.7',
+        headers: { 'x-forwarded-for': '9.9.9.9' },
+      });
+    }
+
+    const keys = harness.db
+      .prepare("SELECT key FROM login_attempts WHERE kind = 'ip'")
+      .all() as { key: string }[];
+
+    expect(keys.map((row) => row.key)).toContain('203.0.113.7');
+    // The spoofed address must not have created its own counter.
+    expect(keys.map((row) => row.key)).not.toContain('9.9.9.9');
   });
 });
 

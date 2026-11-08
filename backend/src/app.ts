@@ -12,12 +12,14 @@ import { registerErrorHandler } from './middleware/errorHandler.js';
 import { registerAuditRoutes } from './routes/audit.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerDockerRoutes } from './routes/docker.js';
+import { registerDomainRoutes } from './routes/domains.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { createMetricsHub, registerMetricsRoutes } from './routes/metrics.js';
 import { registerProjectRoutes } from './routes/projects.js';
 import { registerWebhookRoutes } from './routes/webhook.js';
 import { createServer, type AppInstance } from './server.js';
 import { AuthService } from './services/auth.js';
+import { CaddyService } from './services/caddy.js';
 import { DeploymentService } from './services/deployments.js';
 import { DockerService } from './services/docker.js';
 import { DockerStatsPoller } from './services/dockerStats.js';
@@ -41,6 +43,8 @@ export interface BuildAppOptions {
   dockerService?: DockerService;
   /** Injected in tests: a stub pipeline that records enqueues instead of building. */
   deploymentService?: DeploymentService;
+  /** Injected in tests: a stub Caddy controller (no admin API needed). */
+  caddyService?: CaddyService;
 }
 
 /**
@@ -53,7 +57,12 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   const { config, db, logger } = options;
   const startedAt = Date.now();
 
-  const app = createServer(logger);
+  const app = createServer(logger, {
+    // X-Forwarded-For is believed only when the immediate peer is the loopback
+    // proxy — never from a client that connects directly.
+    trustProxy: config.trustProxy,
+    trustedAddresses: config.trustProxyAddresses,
+  });
 
   /**
    * The webhook needs the RAW body to verify its HMAC. Fastify parses JSON
@@ -69,8 +78,16 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
         done(null, body);
         return;
       }
+      const raw = (body as Buffer).toString('utf8');
+      // A DELETE (or any request) with no body must not explode: an empty
+      // payload is simply "no fields".
+      if (raw.trim() === '') {
+        done(null, {});
+        return;
+      }
+
       try {
-        done(null, JSON.parse((body as Buffer).toString('utf8')));
+        done(null, JSON.parse(raw));
       } catch (error) {
         done(error as Error, undefined);
       }
@@ -138,6 +155,8 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   const webhookLimiter = new SessionRateLimiter(30);
 
   const logHub = new LogHub();
+  const caddy = options.caddyService ?? new CaddyService({ db, config, logger });
+
   const deployments =
     options.deploymentService ??
     new DeploymentService({
@@ -146,6 +165,7 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
       logger,
       client: docker.rawClient?.() ?? new Docker({ host: config.docker.hostUrl.replace(/^tcp:\/\//, '') }),
       onLog: (deploymentId, line) => logHub.publish(deploymentId, line),
+      caddy,
     });
 
   const sampler = new MetricsSampler({
@@ -202,12 +222,14 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     config,
     auth,
     logger,
+    caddy,
     deployments,
     docker,
     registry,
     logHub,
     actions: deployActions,
   });
+  registerDomainRoutes(app, { db, config, caddy, logger });
   registerWebhookRoutes(app, { db, config, logger, deployments, ipLimiter: webhookLimiter });
   registerErrorHandler(app, logger);
 
@@ -245,11 +267,16 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
       { intervalMs: config.metricsIntervalMs, retentionHours: config.metricsRetentionHours },
       'metrics sampler started',
     );
+
+    // Re-apply the desired Caddy routes: API-only routes do not survive a Caddy
+    // reload, so this runs on every boot and every CADDY_SYNC_INTERVAL_MS.
+    caddy.start();
   });
 
   app.addHook('onClose', async () => {
     sampler.stop();
     statsPoller.stop();
+    caddy.stop();
     if (sessionPurgeTimer) clearInterval(sessionPurgeTimer);
     hub.clear();
   });

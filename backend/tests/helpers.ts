@@ -63,6 +63,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     argon2: { memoryCost: 8192, timeCost: 2, parallelism: 1 },
     login: { maxFailures: 3, windowMs: 10 * 60_000, lockoutMs: 5 * 60_000 },
     trustProxy: false,
+    trustProxyAddresses: ['127.0.0.1', '::1'],
     docker: {
       hostUrl: 'http://127.0.0.1:2375',
       timeoutMs: 2000,
@@ -89,6 +90,17 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       healthCheckTimeoutMs: 30_000,
     },
     webhook: { maxBodyBytes: 1_048_576 },
+    caddy: {
+      mode: 'local',
+      adminUrl: 'http://127.0.0.1:2019',
+      appsListen: { host: '127.0.0.1', port: 8080 },
+      dashboardHost: 'capturehost.localhost',
+      dashboardListen: { host: '127.0.0.1', port: 8090 },
+      timeoutMs: 2000,
+      syncIntervalMs: 60_000,
+      allowedBaseDomains: ['localhost'],
+      webhookPublicHost: null,
+    },
     ...overrides,
   };
 }

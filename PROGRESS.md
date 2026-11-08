@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 5 — Phase 4 complete)
+Last updated: 2026-11-08 (session 6 — Phase 5 complete)
 
 ---
 
@@ -12,10 +12,10 @@ Last updated: 2026-11-08 (session 5 — Phase 4 complete)
 
 | Item | Value |
 |---|---|
-| Current phase | **Phase 4 — GitHub deployment: DONE**, awaiting "next" for Phase 5 |
+| Current phase | **Phase 5 — domains + Caddy: DONE**, awaiting "next" for Phase 6 |
 | Verified state | 229 backend tests pass, `tsc` clean both packages, `npm audit` 0 vulns, real deploy of `Sidharth7082/capturehost-test-app` live on 127.0.0.1:8101, screenshots at 1440 and 390 |
 | Last commit | `feat(phase-4): github deployments, webhooks and rollback` |
-| Next action | Phase 5 — Caddy admin API, subdomains, automatic HTTPS |
+| Next action | Phase 6 — backups, settings polish, notifications, production compose |
 
 ---
 
@@ -30,8 +30,8 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done + verified by runni
 | 2 | Auth: argon2, sessions, CSRF, rate limit, TOTP, audit log | `[x]` |
 | 3 | Docker: socket proxy, container control, live logs | `[x]` |
 | 4 | GitHub deploy: clone, build, webhook HMAC, rollback | `[x]` |
-| 5 | Domains + Caddy admin API + HTTPS | `[ ]` next |
-| 6 | Polish: backups, settings, notifications, README | `[ ]` |
+| 5 | Domains + Caddy admin API + HTTPS | `[x]` |
+| 6 | Polish: backups, settings, notifications, README | `[ ]` next |
 
 ---
 
@@ -207,7 +207,15 @@ DOCKER_API_PASSWORD='…' node scripts/integration-docker.mjs
 | WS | `/ws/deployments/:depId/logs` | session **+** Origin allowlist | n/a |
 | POST | `/api/webhooks/github/:projectId` | **public** — HMAC over the raw body | n/a |
 
-Reserved: Phase 5 domains, Phase 6 settings/backup.
+| GET | `/api/domains` | session | n/a |
+| POST | `/api/domains` | session | **yes** |
+| PATCH | `/api/domains/:id` | session | **yes** |
+| DELETE | `/api/domains/:id` | session | **yes** |
+| POST | `/api/domains/:id/check` | session | **yes** |
+| GET | `/api/projects/:id/domains` | session | n/a |
+| GET | `/api/caddy/status` | session | n/a |
+
+Reserved: Phase 6 settings/backup.
 There is deliberately **no exec endpoint and no create-container endpoint**; the only
 way a container is created is the deploy pipeline, which owns the safety policy.
 
@@ -291,6 +299,28 @@ way a container is created is the deploy pipeline, which owns the safety policy.
 
 ---
 
+### Phase 5
+35. **The Caddy admin API has no auth**, so the client refuses any non-loopback
+    `CADDY_ADMIN_URL` at construction and the Caddyfile binds `127.0.0.1:2019`.
+36. **Routes are appended, never written wholesale.** The admin API rejects PUT
+    on a route array ("key already exists") and only accepts an array when the
+    list does not exist yet; the client tracks that and uses DELETE-by-@id plus
+    POST (array on creation, single route afterwards).
+37. **The 404 catch-all belongs to the backend**, tagged `capturehost-catchall`
+    and re-appended last on every sync. A catch-all in the Caddyfile would sit
+    first and shadow every deployed site, and a server with no routes answers
+    200 instead of 404.
+38. **Upstream allowlist is by port**, not by project: 2375/2019/8787/8090/5173
+    and anything outside the app range are refused before a route is built.
+39. **Blue/green includes the hostname**: the route moves to the new port while
+    the old container still serves, the hostname is probed through Caddy, and a
+    failure reverts the upstream and fails the deployment.
+40. **Desired state lives in SQLite** and is re-applied on boot and every
+    `CADDY_SYNC_INTERVAL_MS`; drift is counted and audited (`caddy.drift_repaired`).
+41. **`trustProxy` is a predicate, not `true`**: X-Forwarded-For is believed
+    only when the immediate peer is `TRUST_PROXY_ADDRESSES` (loopback), so a
+    spoofed header from anywhere else cannot move the login-lockout key.
+
 ## 8. Known gaps / deliberate deferrals
 
 - **Phase 5 prerequisites (flagged by the user, do not forget):**
@@ -313,7 +343,14 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   generation — deliberate (Dockerfile required).
 - Disk stat card has no sparkline.
 - No "forgot password" by design: recovery is `npm run reset:admin` from a shell.
-- `domains` table still unused (Phase 5).
+- `public` mode is implemented but **untested** (needs a real domain and an
+  inbound port); the README says so.
+- The Caddyfile's dashboard site answers an empty 200 (not 404) for a foreign
+  Host on `:8090`; it never serves the dashboard for it, but the status code is
+  cosmetic.
+- No certificate probes yet in local mode (`https_ok` stays null until public
+  mode is used).
+- Webhook gateway (`WEBHOOK_PUBLIC_HOST`) is documented but not enabled.
 - Audit log has no retention/rotation yet (Phase 6).
 - No container **create** or **exec** from the UI — deliberate (containers are only
   created by the deploy pipeline, which owns the safety policy).
@@ -395,6 +432,27 @@ way a container is created is the deploy pipeline, which owns the safety policy.
 - `npm audit`: 0 vulnerabilities, both packages. `tsc` clean, frontend `npm run build` green.
 
 ---
+
+### 2026-11-08 — session 6
+- Phase 5 shipped: `CaddyService` (admin client + reconciler), domain policy,
+  migration 006, domain routes, `deploy/caddy/{Caddyfile,Caddyfile.public}`,
+  Domains page + add-domain modal + Caddy banner, project overview URL.
+- Live: Caddy 2.11.8 on `127.0.0.1:2019/8080/8090`; `hello.capturehost.localhost`
+  returns the deployed app through Caddy, unknown host 404, redeploy and rollback
+  keep the hostname answering, deleting the domain returns 404 again.
+- Bugs found by running it:
+  - the admin API answers **403 with an empty Origin**, so the client now sends
+    `Origin: <adminUrl>`;
+  - PUT on a route array is refused ("key already exists") and POST takes an
+    **array** only when the list is missing — both fixed and covered by tests;
+  - a `routes` list that exists but is empty answers **200**, so the 404
+    catch-all had to move out of the Caddyfile and become a tagged route the
+    backend appends last;
+  - an empty request body (DELETE) crashed the JSON parser (`Unexpected end of
+    JSON input`) and surfaced as a 500 — fixed;
+  - a reload wipes API routes (demonstrated live: `routes: null`), and one domain
+    PATCH restored them.
+- `npm audit`: 0 vulnerabilities, both packages. 288 tests, `tsc` clean.
 
 ## 10. How to resume (for the next agent)
 

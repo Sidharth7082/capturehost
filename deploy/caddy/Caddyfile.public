@@ -1,0 +1,60 @@
+# CaptureHost — Caddy configuration for CADDY_MODE=public.
+#
+# *** UNTESTED. *** Many home connections cannot accept inbound traffic on
+# 80/443 at all (CGNAT, blocked ports, no static IP). Use local or tunnel mode
+# unless you know your line accepts inbound connections and your DNS points at
+# it. If you enable this, you must also set:
+#
+#   CADDY_MODE=public
+#   ALLOWED_BASE_DOMAINS=yourdomain.tld
+#   SESSION_COOKIE_SECURE=true
+#   ALLOWED_ORIGINS=https://capturehost.yourdomain.tld
+#   TRUST_PROXY=true
+#
+# and replace the example address below with a real one so ACME can reach you.
+
+{
+	admin 127.0.0.1:2019
+
+	# Give ACME a real contact address before enabling this.
+	email you@example.com
+}
+
+# ---------------------------------------------------------------------------
+# APPS — public HTTPS. The backend inserts host-matched routes at index 0,
+# each carrying the upstream port of its project's live container.
+# ---------------------------------------------------------------------------
+:443 {
+	bind 0.0.0.0
+
+	respond 404
+}
+
+# Caddy answers plain HTTP with a redirect to HTTPS for the same hosts.
+:80 {
+	bind 0.0.0.0
+
+	redir https://{host}{uri} permanent
+}
+
+# ---------------------------------------------------------------------------
+# DASHBOARD — still private. Keep it on loopback and reach it over Tailscale
+# or a tunnel; publishing the dashboard defeats the point of the auth phase.
+# ---------------------------------------------------------------------------
+http://capturehost.localhost:8090 {
+	bind 127.0.0.1
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	handle /ws/* {
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	handle {
+		root * /home/capture/capturehost/frontend/dist
+		try_files {path} /index.html
+		file_server
+	}
+}

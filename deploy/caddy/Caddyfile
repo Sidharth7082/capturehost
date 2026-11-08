@@ -1,0 +1,78 @@
+# CaptureHost — base Caddy configuration (local / tunnel modes).
+#
+# The backend does not edit this file. It writes ONLY routes tagged
+# capturehost-<domainId> into the apps server through the admin API, and it
+# re-applies them from SQLite on startup and every CADDY_SYNC_INTERVAL_MS,
+# because an API-only change is lost whenever Caddy reloads this file.
+#
+#   sudo cp deploy/caddy/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl enable --now caddy
+#
+# Everything here binds to loopback. The admin API is unauthenticated, so it
+# must never be reachable from anything but this machine.
+
+{
+	# Unauthenticated by design -> loopback only. Never change this to 0.0.0.0.
+	admin 127.0.0.1:2019
+
+	# local/tunnel modes speak plain HTTP; HTTPS is terminated by the tunnel.
+	# (For a real domain use deploy/caddy/Caddyfile.public instead.)
+	auto_https off
+
+	# Keep Caddy's own request log out of the way; the backend reads the admin
+	# API, not the file log.
+	log {
+		level WARN
+	}
+}
+
+# ---------------------------------------------------------------------------
+# APPS LISTENER — deployed sites and nothing else.
+#
+# No routes are defined here, on purpose:
+#   * the admin API can only APPEND to a route list, so a route written in this
+#     file would sit first and shadow every deployed site;
+#   * a server with no routes answers 200 to everything, so the backend writes
+#     its own tagged 404 catch-all (capturehost-catchall) as the LAST route on
+#     every sync. That is what returns 404 for unknown hosts.
+#
+# The dashboard (8787 / 8090), the Docker proxy (2375) and the admin API (2019)
+# are never reachable through this listener under any hostname.
+# ---------------------------------------------------------------------------
+http://:8080 {
+	bind 127.0.0.1
+}
+
+# ---------------------------------------------------------------------------
+# DASHBOARD — private, on its own loopback listener, never on the apps port.
+# Serves the built frontend and proxies only /api and /ws to Fastify, and only
+# for its own hostname: any other Host on this port gets a 404.
+#
+#   cd ~/capturehost/frontend && npm run build     # before first use
+#   http://capturehost.localhost:8090
+# ---------------------------------------------------------------------------
+http://capturehost.localhost:8090 {
+	bind 127.0.0.1
+
+	# Host gate first, so another hostname that resolves here cannot read the
+	# dashboard just by hitting the port.
+	@dashboard host capturehost.localhost
+
+	handle @dashboard {
+		handle /api/* {
+			reverse_proxy 127.0.0.1:8787
+		}
+
+		handle /ws/* {
+			reverse_proxy 127.0.0.1:8787
+		}
+
+		handle {
+			root * /home/capture/capturehost/frontend/dist
+			try_files {path} /index.html
+			file_server
+		}
+	}
+
+	respond 404
+}

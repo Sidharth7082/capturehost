@@ -2,6 +2,7 @@ import type { AddressInfo } from 'node:net';
 import type { LightMyRequestResponse } from 'fastify';
 import { buildApp } from '../src/app.js';
 import type { DeploymentService } from '../src/services/deployments.js';
+import type { CaddyService } from '../src/services/caddy.js';
 import { DockerService } from '../src/services/docker.js';
 import { createFakeDocker, type FakeContainerSpec, type FakeDocker } from './dockerFake.js';
 import { createTestDb, seedAdmin, silentLogger, testConfig, TEST_PASSWORD, TEST_USERNAME, type TestDb } from './helpers.js';
@@ -39,6 +40,8 @@ export async function startApp(
     dockerSpecs?: FakeContainerSpec[];
     /** Pipeline stub so route tests never shell out to git or docker. */
     deployments?: DeploymentService;
+    /** Caddy stub so route tests never need a real controller. */
+    caddy?: CaddyService;
   } = {},
 ): Promise<AuthedApp> {
   const testDb = createTestDb();
@@ -55,6 +58,7 @@ export async function startApp(
     startSampler: true,
     dockerService: new DockerService({ config, logger: silentLogger, client: dockerFake.client }),
     ...(options.deployments ? { deploymentService: options.deployments } : {}),
+    ...(options.caddy ? { caddyService: options.caddy } : {}),
   });
 
   await app.listen({ port: 0, host: '127.0.0.1' });

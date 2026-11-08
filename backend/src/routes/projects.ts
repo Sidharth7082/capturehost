@@ -100,6 +100,7 @@ const DeleteQuerySchema = z.object({ confirm: z.string().trim().min(1).max(64) }
 
 export interface ProjectRoutesDeps extends UpgradeDeps {
   db: Db;
+  caddy: { removeRoutesForProject(projectId: number): Promise<void> };
   deployments: DeploymentService;
   docker: DockerService;
   registry: SocketRegistry;
@@ -308,6 +309,14 @@ export function registerProjectRoutes(app: AppInstance, deps: ProjectRoutesDeps)
     if (!project) throw AppError.notFound('Project not found');
     if (confirm !== project.name) {
       throw AppError.badRequest('Confirmation does not match the project name', 'confirm_mismatch');
+    }
+
+    // Drop the Caddy routes first: a route pointing at a removed container
+    // would 502 until the next sync.
+    try {
+      await deps.caddy.removeRoutesForProject(project.id);
+    } catch (error) {
+      deps.logger.warn({ err: error, projectId: project.id }, 'could not remove domain routes');
     }
 
     // Stop and remove the container before forgetting the project.

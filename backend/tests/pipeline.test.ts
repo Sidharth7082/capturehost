@@ -94,7 +94,36 @@ function createFakeDocker(state: FakeDockerState, options: { healthy?: boolean; 
   };
 }
 
-function makeService(state: FakeDockerState, overrides: { healthy?: boolean } = {}) {
+interface FakeRouter {
+  applyRoutesForProject(projectId: number, port: number): Promise<void>;
+  verifyHostname(hostname: string): Promise<{ ok: boolean; status: number | null; error: string | null }>;
+  calls: { apply: Array<{ projectId: number; port: number }>; verify: string[] };
+}
+
+function createFakeRouter(
+  behaviour: { failApply?: boolean; failVerify?: boolean } = {},
+): FakeRouter {
+  const calls: FakeRouter['calls'] = { apply: [], verify: [] };
+
+  return {
+    calls,
+    applyRoutesForProject: async (projectId: number, port: number) => {
+      calls.apply.push({ projectId, port });
+      if (behaviour.failApply) throw new Error('Caddy is not reachable');
+    },
+    verifyHostname: async (hostname: string) => {
+      calls.verify.push(hostname);
+      if (behaviour.failVerify) return { ok: false, status: 502, error: 'HTTP 502' };
+      return { ok: true, status: 200, error: null };
+    },
+  };
+}
+
+function makeService(
+  state: FakeDockerState,
+  overrides: { healthy?: boolean } = {},
+  router?: FakeRouter,
+) {
   const testDb = createTestDb();
   const config = {
     ...testConfigBase(),
@@ -110,6 +139,7 @@ function makeService(state: FakeDockerState, overrides: { healthy?: boolean } = 
     config,
     logger: silentLoggerBase(),
     client: createFakeDocker(state, overrides) as never,
+    ...(router ? { caddy: router } : {}),
   });
 
   return { service, db: testDb.db, cleanup: testDb.cleanup };
@@ -199,6 +229,13 @@ async function expectStatus(
   const deployment = getDeployment(db, deploymentId);
   expect(status, `deployment #${deploymentId} error: ${deployment?.error ?? '(none)'}`).toBe(expected);
   return status;
+}
+
+function seedDomain(db: ReturnType<typeof createTestDb>['db'], projectId: number, hostname: string): void {
+  db.prepare(
+    `INSERT INTO domains (project_id, hostname, tls_enabled, status, enabled, created_at, updated_at)
+     VALUES (?, ?, 1, 'pending', 1, ?, ?)`,
+  ).run(projectId, hostname, Date.now(), Date.now());
 }
 
 function seedProject(db: ReturnType<typeof createTestDb>['db']) {
@@ -441,3 +478,84 @@ describe('DeploymentService', () => {
 
 // Keeps the unused import of setProjectRuntime out of the bundle warning noise.
 void setProjectRuntime;
+
+describe('DeploymentService — domains follow the blue/green swap', () => {
+  it('points the domain at the new port while the old container is still up', async () => {
+    const router = createFakeRouter();
+    const { service, db, cleanup } = makeService(state, {}, router);
+
+    try {
+      const projectId = seedProject(db);
+      db.prepare("UPDATE projects SET container_id = 'old-container-id', host_port = 8100 WHERE id = ?").run(projectId);
+      seedDomain(db, projectId, 'hello.capturehost.localhost');
+
+      const deploymentId = service.enqueueDeploy(getProject(db, projectId)!, 'manual');
+      await expectStatus(db, deploymentId, 'live');
+
+      // The new container takes a fresh port, so the route must move to it.
+      expect(router.calls.apply[0]).toEqual({ projectId, port: 18_080 });
+      expect(router.calls.verify).toEqual(['hello.capturehost.localhost']);
+      expect(state.stopped).toContain('old-container-id');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps the old container when Caddy refuses the route change', async () => {
+    const router = createFakeRouter({ failApply: true });
+    const { service, db, cleanup } = makeService(state, {}, router);
+
+    try {
+      const projectId = seedProject(db);
+      db.prepare("UPDATE projects SET container_id = 'old-container-id', host_port = 8100 WHERE id = ?").run(projectId);
+      seedDomain(db, projectId, 'hello.capturehost.localhost');
+
+      const deploymentId = service.enqueueDeploy(getProject(db, projectId)!, 'manual');
+      await expectStatus(db, deploymentId, 'failed');
+
+      expect(getDeployment(db, deploymentId)!.error).toMatch(/Domain update failed, keeping the previous container/);
+      expect(state.stopped).not.toContain('old-container-id');
+      expect(getProject(db, projectId)!.container_id).toBe('old-container-id');
+
+      // The route was put back on the port the old container still serves.
+      const reverts = router.calls.apply.filter((call) => call.port === 8100);
+      expect(reverts.length).toBeGreaterThan(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps the old container when the domain does not answer through Caddy', async () => {
+    const router = createFakeRouter({ failVerify: true });
+    const { service, db, cleanup } = makeService(state, {}, router);
+
+    try {
+      const projectId = seedProject(db);
+      db.prepare("UPDATE projects SET container_id = 'old-container-id', host_port = 8100 WHERE id = ?").run(projectId);
+      seedDomain(db, projectId, 'hello.capturehost.localhost');
+
+      const deploymentId = service.enqueueDeploy(getProject(db, projectId)!, 'manual');
+      await expectStatus(db, deploymentId, 'failed');
+
+      expect(getDeployment(db, deploymentId)!.error).toMatch(/did not answer through Caddy/);
+      expect(state.stopped).not.toContain('old-container-id');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('does not touch Caddy when the project has no domains', async () => {
+    const router = createFakeRouter();
+    const { service, db, cleanup } = makeService(state, {}, router);
+
+    try {
+      const projectId = seedProject(db);
+      const deploymentId = service.enqueueDeploy(getProject(db, projectId)!, 'manual');
+      await expectStatus(db, deploymentId, 'live');
+
+      expect(router.calls.apply).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+});

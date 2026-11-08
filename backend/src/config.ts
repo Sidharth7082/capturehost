@@ -86,6 +86,36 @@ const EnvSchema = z.object({
   CONTAINER_NETWORK: z.string().min(1).max(64).default('capturehost-apps'),
   HEALTH_CHECK_TIMEOUT_MS: z.coerce.number().int().min(2000).max(120_000).default(30_000),
   WEBHOOK_MAX_BODY_BYTES: z.coerce.number().int().min(1024).max(10_485_760).default(1_048_576),
+
+  // ---- caddy / domains (Phase 5) ----
+  /**
+   * local  — hostnames under *.localhost, plain HTTP on a loopback listener.
+   * tunnel — same listener; a Cloudflare Tunnel in front terminates HTTPS.
+   * public — direct 80/443 with Caddy's automatic HTTPS (UNTESTED, off by default).
+   */
+  CADDY_MODE: z.enum(['local', 'tunnel', 'public']).default('local'),
+  // Admin API is unauthenticated by design: loopback only, never exposed.
+  CADDY_ADMIN_URL: z.string().url().default('http://127.0.0.1:2019'),
+  // The ONLY listener deployed apps may be reached on.
+  CADDY_APPS_LISTEN: z
+    .string()
+    .regex(/^127\.0\.0\.1:\d+$/, 'must be 127.0.0.1:<port>')
+    .default('127.0.0.1:8080'),
+  // Private dashboard listener, always separate from the apps listener.
+  CADDY_DASHBOARD_HOST: z.string().min(1).max(253).default('capturehost.localhost'),
+  CADDY_DASHBOARD_LISTEN: z
+    .string()
+    .regex(/^127\.0\.0\.1:\d+$/, 'must be 127.0.0.1:<port>')
+    .default('127.0.0.1:8090'),
+  CADDY_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(5_000),
+  // Desired state lives in SQLite; this is how often drift is repaired.
+  CADDY_SYNC_INTERVAL_MS: z.coerce.number().int().min(5_000).max(600_000).default(60_000),
+  // Only hostnames ending in one of these may be attached. UI cannot change it.
+  ALLOWED_BASE_DOMAINS: z.string().default('localhost'),
+  // Optional public webhook gateway host (off unless set).
+  WEBHOOK_PUBLIC_HOST: z.string().max(253).optional(),
+  // Addresses allowed to set X-Forwarded-For (the loopback proxy only).
+  TRUST_PROXY_ADDRESSES: z.string().default('127.0.0.1,::1'),
 });
 
 export interface AppConfig {
@@ -119,6 +149,8 @@ export interface AppConfig {
     lockoutMs: number;
   };
   trustProxy: boolean;
+  /** Client addresses whose X-Forwarded-For header is believed. */
+  trustProxyAddresses: string[];
 
   docker: {
     hostUrl: string;
@@ -149,6 +181,18 @@ export interface AppConfig {
   };
 
   webhook: { maxBodyBytes: number };
+
+  caddy: {
+    mode: 'local' | 'tunnel' | 'public';
+    adminUrl: string;
+    appsListen: { host: string; port: number };
+    dashboardHost: string;
+    dashboardListen: { host: string; port: number };
+    timeoutMs: number;
+    syncIntervalMs: number;
+    allowedBaseDomains: string[];
+    webhookPublicHost: string | null;
+  };
 }
 
 /**
@@ -247,6 +291,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       lockoutMs: value.LOGIN_LOCKOUT_MINUTES * 60_000,
     },
     trustProxy: value.TRUST_PROXY,
+    trustProxyAddresses: value.TRUST_PROXY_ADDRESSES.split(',').map((entry) => entry.trim()).filter(Boolean),
 
     docker: {
       hostUrl: value.DOCKER_HOST_URL,
@@ -278,5 +323,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
 
     webhook: { maxBodyBytes: value.WEBHOOK_MAX_BODY_BYTES },
+
+    caddy: {
+      mode: value.CADDY_MODE,
+      adminUrl: value.CADDY_ADMIN_URL.replace(/\/+$/, ''),
+      appsListen: splitHostPort(value.CADDY_APPS_LISTEN),
+      dashboardHost: value.CADDY_DASHBOARD_HOST.toLowerCase(),
+      dashboardListen: splitHostPort(value.CADDY_DASHBOARD_LISTEN),
+      timeoutMs: value.CADDY_REQUEST_TIMEOUT_MS,
+      syncIntervalMs: value.CADDY_SYNC_INTERVAL_MS,
+      allowedBaseDomains: value.ALLOWED_BASE_DOMAINS.split(',')
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean),
+      webhookPublicHost: value.WEBHOOK_PUBLIC_HOST ? value.WEBHOOK_PUBLIC_HOST.toLowerCase() : null,
+    },
   };
+}
+
+/** Splits the loopback "127.0.0.1:8080" listeners the config accepts. */
+function splitHostPort(value: string): { host: string; port: number } {
+  const [host, port] = value.split(':');
+  return { host: host ?? '127.0.0.1', port: Number(port) };
 }
