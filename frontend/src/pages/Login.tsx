@@ -133,7 +133,11 @@ export function Login(): JSX.Element {
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
                 placeholder="admin"
+                aria-describedby="username-hint"
               />
+              <p className="login-hint" id="username-hint">
+                Not case-sensitive — any casing of your admin name works.
+              </p>
             </div>
 
             <div className="login-field">

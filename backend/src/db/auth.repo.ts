@@ -50,10 +50,20 @@ export function getAdmin(db: Db): AdminRow | null {
   return row ?? null;
 }
 
+/**
+ * Case-insensitive on purpose: the admin types the name by hand, and `Sid` failing
+ * where `sid` works is indistinguishable from a wrong password — it silently burns
+ * a login attempt and, five of them, locks the IP.
+ *
+ * `COLLATE NOCASE` folds ASCII only (SQLite has no ICU by default), which is the
+ * whole alphabet an admin name realistically uses. There is exactly one admin row
+ * (`CHECK (id = 1)`), so the column's BINARY `UNIQUE` index cannot be violated by
+ * two names differing only in case — no migration, no table rebuild.
+ */
 export function getAdminByUsername(db: Db, username: string): AdminRow | null {
-  const row = db.prepare(`SELECT ${ADMIN_COLUMNS} FROM admin WHERE username = ?`).get(username) as
-    | AdminRow
-    | undefined;
+  const row = db
+    .prepare(`SELECT ${ADMIN_COLUMNS} FROM admin WHERE username = ? COLLATE NOCASE`)
+    .get(username) as AdminRow | undefined;
   return row ?? null;
 }
 

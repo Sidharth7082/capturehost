@@ -12,6 +12,7 @@ import { Security } from './pages/Security';
 import { Domains } from './pages/Domains';
 import { Login } from './pages/Login';
 import { Logs } from './pages/Logs';
+import { NotFound } from './pages/NotFound';
 import { ProjectDetail } from './pages/ProjectDetail';
 import { Projects } from './pages/Projects';
 import { Settings } from './pages/Settings';
@@ -43,6 +44,7 @@ export function App() {
               <Route path="security" element={<Security />} />
               <Route path="logs" element={<Logs />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>
         </ToastProvider>

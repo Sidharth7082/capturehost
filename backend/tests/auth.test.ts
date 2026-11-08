@@ -120,6 +120,34 @@ describe('login', () => {
     expect((unknownUser as AppError).statusCode).toBe(401);
   });
 
+  it('accepts the username in any case', async () => {
+    // `Sid` failing where `sid` works looks exactly like a wrong password, burns a
+    // login attempt and, five of them, locks the IP out.
+    for (const typed of ['Admin', 'ADMIN', 'aDmIn']) {
+      const harness = await setup();
+      const result = await harness.service.login(typed, TEST_PASSWORD, META);
+
+      expect(result.requires2fa).toBe(false);
+      // The stored name is what the session and the audit log carry, not the typing.
+      expect(result.username).toBe(TEST_USERNAME);
+      expect(harness.service.authenticate(result.token)?.kind).toBe('full');
+    }
+  });
+
+  it('counts mixed-case failures in the single lowercase lockout bucket', async () => {
+    const harness = await setup();
+    await harness.service.login('AdMiN', 'wrong-password-123', META).catch(() => undefined);
+
+    const rows = harness.db
+      .prepare('SELECT kind, key, failures FROM login_attempts ORDER BY kind, key')
+      .all();
+
+    expect(rows).toEqual([
+      { kind: 'ip', key: '127.0.0.1', failures: 1 },
+      { kind: 'username', key: TEST_USERNAME, failures: 1 },
+    ]);
+  });
+
   it('does the same work for an unknown user (timing parity)', async () => {
     const harness = await setup();
 

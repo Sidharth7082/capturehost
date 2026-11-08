@@ -95,5 +95,20 @@ export function findPage(pathname: string): NavPage {
 
   // Detail routes (/projects/1) keep the parent page's title in the topbar.
   const parent = NAV_PAGES.find((page) => page.path !== '/' && pathname.startsWith(`${page.path}/`));
-  return parent ?? NAV_PAGES[0]!;
+  if (parent) return parent;
+
+  // Unknown URL: the NotFound page owns the content, and the topbar must not
+  // claim "Dashboard" over it. Not in NAV_PAGES, so it never shows in the sidebar.
+  if (pathname !== '/') {
+    return {
+      path: pathname,
+      label: 'Not found',
+      subtitle: 'No page matches this address',
+      icon: 'alert',
+      ready: true,
+      phase: 0,
+    };
+  }
+
+  return NAV_PAGES[0]!;
 }
