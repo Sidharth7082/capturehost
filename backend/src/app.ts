@@ -2,6 +2,7 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import websocket from '@fastify/websocket';
+import Docker from 'dockerode';
 import type { AppConfig } from './config.js';
 import type { Db } from './db/connection.js';
 import { insertSample, pruneOlderThan } from './db/metrics.repo.js';
@@ -13,11 +14,15 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerDockerRoutes } from './routes/docker.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { createMetricsHub, registerMetricsRoutes } from './routes/metrics.js';
+import { registerProjectRoutes } from './routes/projects.js';
+import { registerWebhookRoutes } from './routes/webhook.js';
 import { createServer, type AppInstance } from './server.js';
 import { AuthService } from './services/auth.js';
+import { DeploymentService } from './services/deployments.js';
 import { DockerService } from './services/docker.js';
 import { DockerStatsPoller } from './services/dockerStats.js';
 import { createGpuProbe, type GpuProbe } from './services/gpu.js';
+import { LogHub } from './services/logHub.js';
 import { MetricsSampler } from './services/metrics.js';
 import { SocketRegistry } from './services/socketRegistry.js';
 import { SessionRateLimiter } from './utils/rateLimit.js';
@@ -34,6 +39,8 @@ export interface BuildAppOptions {
   startSampler?: boolean;
   /** Injected in tests: a stub with the DockerService surface. */
   dockerService?: DockerService;
+  /** Injected in tests: a stub pipeline that records enqueues instead of building. */
+  deploymentService?: DeploymentService;
 }
 
 /**
@@ -47,6 +54,28 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   const startedAt = Date.now();
 
   const app = createServer(logger);
+
+  /**
+   * The webhook needs the RAW body to verify its HMAC. Fastify parses JSON
+   * before any handler runs, so that one path keeps the buffer and everything
+   * else gets the normal parsed object. Fastify's bodyLimit still applies
+   * before this parser is called.
+   */
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'buffer', bodyLimit: config.webhook.maxBodyBytes },
+    (request, body, done) => {
+      if ((request.url ?? '').startsWith('/api/webhooks/github/')) {
+        done(null, body);
+        return;
+      }
+      try {
+        done(null, JSON.parse((body as Buffer).toString('utf8')));
+      } catch (error) {
+        done(error as Error, undefined);
+      }
+    },
+  );
 
   // Must be registered (and awaited) before any route with `websocket: true`.
   await app.register(websocket);
@@ -103,6 +132,22 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   // Actions (start/stop/restart/remove) are budgeted per session.
   const dockerActions = new SessionRateLimiter(config.docker.actionsPerMinute);
 
+  // Deploys are slower and heavier than container actions, so they get their
+  // own, smaller budget.
+  const deployActions = new SessionRateLimiter(config.deploy.actionsPerMinute);
+  const webhookLimiter = new SessionRateLimiter(30);
+
+  const logHub = new LogHub();
+  const deployments =
+    options.deploymentService ??
+    new DeploymentService({
+      db,
+      config,
+      logger,
+      client: docker.rawClient?.() ?? new Docker({ host: config.docker.hostUrl.replace(/^tcp:\/\//, '') }),
+      onLog: (deploymentId, line) => logHub.publish(deploymentId, line),
+    });
+
   const sampler = new MetricsSampler({
     intervalMs: config.metricsIntervalMs,
     retentionHours: config.metricsRetentionHours,
@@ -152,6 +197,18 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     auth,
     logger,
   });
+  registerProjectRoutes(app, {
+    db,
+    config,
+    auth,
+    logger,
+    deployments,
+    docker,
+    registry,
+    logHub,
+    actions: deployActions,
+  });
+  registerWebhookRoutes(app, { db, config, logger, deployments, ipLimiter: webhookLimiter });
   registerErrorHandler(app, logger);
 
   let sessionPurgeTimer: NodeJS.Timeout | null = null;

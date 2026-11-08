@@ -70,12 +70,31 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       protectedContainers: ['capturehost-socket-proxy'],
       actionsPerMinute: 30,
     },
+    deploy: {
+      dataDir: join(tmpdir(), 'capturehost-test-deployments'),
+      buildTimeoutMs: 60_000,
+      keepImages: 3,
+      maxLogBytes: 65_536,
+      maxCloneBytes: 10 * 1024 * 1024,
+      actionsPerMinute: 10,
+      gitTimeoutMs: 30_000,
+      memoryDefaultMb: 512,
+      memoryMaxMb: 4096,
+      cpuDefault: 0.5,
+      cpuMax: 4,
+      pidsLimit: 256,
+      portRangeStart: 8100,
+      portRangeEnd: 8999,
+      network: 'capturehost-apps',
+      healthCheckTimeoutMs: 30_000,
+    },
+    webhook: { maxBodyBytes: 1_048_576 },
     ...overrides,
   };
 }
 
 export const TEST_USERNAME = 'admin';
-export const TEST_PASSWORD = 'correct-horse-battery-42';
+export const TEST_PASSWORD = 'fixture-password-do-not-use';
 
 /** Creates the single admin row the way setup:admin would. */
 export async function seedAdmin(db: Db, password = TEST_PASSWORD): Promise<void> {

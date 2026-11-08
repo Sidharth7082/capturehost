@@ -94,7 +94,7 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase();
   const headers: Record<string, string> = {
     Accept: 'application/json',

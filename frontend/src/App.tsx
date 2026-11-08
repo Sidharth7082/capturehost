@@ -11,6 +11,7 @@ import { Deployments } from './pages/Deployments';
 import { Domains } from './pages/Domains';
 import { Login } from './pages/Login';
 import { Logs } from './pages/Logs';
+import { ProjectDetail } from './pages/ProjectDetail';
 import { Projects } from './pages/Projects';
 import { Settings } from './pages/Settings';
 
@@ -33,6 +34,7 @@ export function App() {
             >
               <Route index element={<Dashboard />} />
               <Route path="projects" element={<Projects />} />
+              <Route path="projects/:id" element={<ProjectDetail />} />
               <Route path="containers" element={<Containers />} />
               <Route path="deployments" element={<Deployments />} />
               <Route path="domains" element={<Domains />} />

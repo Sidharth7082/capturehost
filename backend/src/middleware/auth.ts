@@ -29,6 +29,13 @@ const PUBLIC_ROUTES = new Set([
 /** A pending-2FA session may only log itself out; it is not a login yet. */
 const ALLOWED_WHILE_PENDING = new Set(['POST /api/auth/logout']);
 
+/**
+ * Path prefixes that authenticate themselves instead of using a session.
+ * Only GitHub webhooks qualify: they carry an HMAC over the raw body, and are
+ * useless without the per-project secret.
+ */
+const PUBLIC_PREFIXES = ['/api/webhooks/github/'];
+
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 export interface AuthGuardDeps {
@@ -66,6 +73,9 @@ export function registerAuthGuard(app: AppInstance, deps: AuthGuardDeps): void {
     if (auth) request.auth = auth;
 
     if (PUBLIC_ROUTES.has(`${request.method} ${path}`)) return;
+    // GitHub webhooks carry no session — they prove themselves with an HMAC
+    // signature over the raw body inside the route.
+    if (PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix))) return;
 
     if (!auth) throw new AppError(401, 'unauthenticated', 'Authentication required');
 

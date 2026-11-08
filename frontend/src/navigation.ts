@@ -28,7 +28,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     label: 'Projects',
     subtitle: 'Repositories deployed from GitHub',
     icon: 'projects',
-    ready: false,
+    ready: true,
     phase: 4,
   },
   {
@@ -42,7 +42,7 @@ export const NAV_PAGES: readonly NavPage[] = [
   {
     path: '/deployments',
     label: 'Deployments',
-    subtitle: 'Build history and rollbacks',
+    subtitle: 'Per-project history lives on each project page',
     icon: 'deployments',
     ready: false,
     phase: 4,
@@ -83,5 +83,9 @@ export const NAV_PAGES: readonly NavPage[] = [
 
 export function findPage(pathname: string): NavPage {
   const exact = NAV_PAGES.find((page) => page.path === pathname);
-  return exact ?? NAV_PAGES[0]!;
+  if (exact) return exact;
+
+  // Detail routes (/projects/1) keep the parent page's title in the topbar.
+  const parent = NAV_PAGES.find((page) => page.path !== '/' && pathname.startsWith(`${page.path}/`));
+  return parent ?? NAV_PAGES[0]!;
 }

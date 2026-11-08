@@ -1,6 +1,7 @@
 import Docker from 'dockerode';
 import type { ContainerInfo, ContainerStats } from 'dockerode';
 import { PassThrough } from 'node:stream';
+import { isManagedContainer } from './containerPolicy.js';
 import type { AppConfig } from '../config.js';
 import type { Logger } from '../logger.js';
 import { AppError } from '../utils/errors.js';
@@ -425,6 +426,66 @@ export class DockerService {
       stopped = true;
       (stream as unknown as { destroy?: () => void }).destroy?.();
     };
+  }
+
+  // ------------------------------------------------------- deployment helpers
+
+  /**
+   * Removes a container this app created for a project.
+   *
+   * Only containers carrying our `capturehost.managed` label are touched: if
+   * the stored id ever points at something else, this refuses instead of
+   * deleting a stranger's container.
+   */
+  async removeContainerForProject(containerId: string): Promise<boolean> {
+    try {
+      const container = this.docker.getContainer(containerId);
+      const info = (await container.inspect()) as InspectRaw;
+      const labels = (info.Config?.Labels ?? {}) as Record<string, string>;
+
+      if (!isManagedContainer(labels)) {
+        this.logger.warn({ containerId }, 'refusing to remove a container this app did not create');
+        return false;
+      }
+
+      await container.stop({ t: STOP_GRACE_SECONDS }).catch(() => undefined);
+      await container.remove({ force: true });
+      return true;
+    } catch {
+      return false; // already gone
+    }
+  }
+
+  /** Deletes only `capturehost/<slug>:*` images, never anything else. */
+  async removeImagesForProject(slug: string): Promise<number> {
+    const prefix = `capturehost/${slug}:`;
+    let removed = 0;
+
+    try {
+      const images = await this.docker.listImages();
+
+      for (const image of images) {
+        for (const tag of image.RepoTags ?? []) {
+          if (!tag.startsWith(prefix)) continue;
+          await this.docker
+            .getImage(tag)
+            .remove({ force: true })
+            .then(() => {
+              removed += 1;
+            })
+            .catch(() => undefined);
+        }
+      }
+    } catch (error) {
+      this.logger.warn({ err: error, slug }, 'image cleanup failed');
+    }
+
+    return removed;
+  }
+
+  /** Raw client for the deployment pipeline (build/create). Same proxy. */
+  rawClient(): Docker {
+    return this.docker;
   }
 
   // ---------------------------------------------------------------- helpers

@@ -38,6 +38,21 @@ const PROTECTED_ROUTES: ReadonlyArray<[string, string]> = [
   ['POST', '/api/docker/containers/abcdef1234567890/stop'],
   ['POST', '/api/docker/containers/abcdef1234567890/restart'],
   ['DELETE', '/api/docker/containers/abcdef1234567890'],
+  // Phase 4
+  ['GET', '/api/projects'],
+  ['POST', '/api/projects'],
+  ['GET', '/api/projects/1'],
+  ['PATCH', '/api/projects/1'],
+  ['DELETE', '/api/projects/1?confirm=demo'],
+  ['POST', '/api/projects/1/deploy'],
+  ['GET', '/api/projects/1/deployments'],
+  ['POST', '/api/projects/1/deployments/2/cancel'],
+  ['POST', '/api/projects/1/rollback'],
+  ['GET', '/api/projects/1/env'],
+  ['PUT', '/api/projects/1/env'],
+  ['DELETE', '/api/projects/1/env/API_KEY'],
+  ['GET', '/api/projects/1/webhook'],
+  ['GET', '/api/project-ports'],
 ];
 
 describe('authentication gate', () => {

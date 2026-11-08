@@ -9,6 +9,18 @@
 #   docker compose -f docker-compose.dev.yml down
 
 services:
+  # Compose only creates a network that some service references, and the proxy
+  # must stay off it, so this one-shot container exists purely to bring the
+  # network into existence. It runs `true` and exits; `restart: "no"` keeps it
+  # out of the way.
+  network-init:
+    image: alpine:3.20
+    container_name: capturehost-network-init
+    command: ["true"]
+    restart: "no"
+    networks:
+      - capturehost-apps
+
   docker-socket-proxy:
     # Pinned: an unpinned proxy silently changes what it allows.
     image: tecnativa/docker-socket-proxy:0.2.0
@@ -36,22 +48,33 @@ services:
       #             read-only. It is still scoped by the flags above: POST on
       #             /exec, /build or /volumes stays closed.
       POST: 1
+      # BUILD:      Phase 4 builds images from a cloned Dockerfile. Needed for
+      #             POST /build. Note this proxy filters by URL (and method),
+      #             NOT by request body: the build context and the container
+      #             create options are whatever the backend sends. That is why
+      #             the backend enforces a container safety policy itself
+      #             (services/containerPolicy.ts) instead of trusting the proxy.
+      BUILD: 1
 
       # ---- explicitly closed -------------------------------------------
       EXEC: 0 #      no shell inside containers (the classic privilege escalation)
       VOLUMES: 0 #   no creating/deleting host volumes
-      NETWORKS: 0 #  no rewiring host networking
+      NETWORKS: 0 #  no rewiring host networking — the app network is created by
+                  # this compose file, not through the API
       SECRETS: 0 #   no docker secrets
       SERVICES: 0 #  no swarm services
       SWARM: 0 #     no swarm at all
       AUTH: 0 #      no /auth (registry credentials)
-      BUILD: 0 #     no image builds from this socket (Phase 4 builds separately)
       COMMIT: 0 #    no committing containers to images
       CONFIGS: 0 #   no docker configs
       PLUGINS: 0 #   no plugin installs
       SYSTEM: 0 #    no /system endpoints — prune lives here
       TASKS: 0 #     no swarm tasks
       NODES: 0 #     no swarm nodes
+      # SESSION / GRPC stay closed: those are BuildKit. We use dockerode's
+      # classic buildImage, which goes through POST /build.
+      SESSION: 0
+      GRPC: 0
 
     volumes:
       # Read-only: the proxy reads the socket, it must never rewrite the file.
@@ -66,3 +89,15 @@ services:
       # The dashboard must never offer to stop the thing that gives it Docker
       # access. Enforced again in the backend, not just hidden in the UI.
       capturehost.protected: "true"
+
+# Deployed apps attach to this network. It is created by compose, by this file,
+# never through the Docker API (the proxy keeps NETWORKS=0), so a project cannot
+# rewire networking.
+#
+# The proxy is deliberately NOT on this network: an app container must never be
+# able to reach the (unauthenticated) Docker API proxy sitting next to it.
+networks:
+  capturehost-apps:
+    name: capturehost-apps
+    driver: bridge
+

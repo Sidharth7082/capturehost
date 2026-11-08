@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 4 — Phase 3 complete)
+Last updated: 2026-11-08 (session 5 — Phase 4 complete)
 
 ---
 
@@ -12,10 +12,10 @@ Last updated: 2026-11-08 (session 4 — Phase 3 complete)
 
 | Item | Value |
 |---|---|
-| Current phase | **Phase 3 — Docker management: DONE**, awaiting "next" for Phase 4 |
-| Verified state | 121 backend tests pass, `tsc` clean both packages, `npm audit` 0 vulns, live integration script green against the real daemon, screenshots at 1440 and 390 |
-| Last commit | `feat(phase-2): authentication, sessions, CSRF and TOTP` (0429068) |
-| Next action | Phase 4 — GitHub deployment (clone, build, webhook HMAC, rollback) |
+| Current phase | **Phase 4 — GitHub deployment: DONE**, awaiting "next" for Phase 5 |
+| Verified state | 229 backend tests pass, `tsc` clean both packages, `npm audit` 0 vulns, real deploy of `Sidharth7082/capturehost-test-app` live on 127.0.0.1:8101, screenshots at 1440 and 390 |
+| Last commit | `feat(phase-4): github deployments, webhooks and rollback` |
+| Next action | Phase 5 — Caddy admin API, subdomains, automatic HTTPS |
 
 ---
 
@@ -29,8 +29,8 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done + verified by runni
 | 1 | Monitoring: `/api/health`, `ws /ws/metrics`, SQLite 24 h history, dashboard | `[x]` |
 | 2 | Auth: argon2, sessions, CSRF, rate limit, TOTP, audit log | `[x]` |
 | 3 | Docker: socket proxy, container control, live logs | `[x]` |
-| 4 | GitHub deploy: clone, build, webhook HMAC, rollback | `[ ]` next |
-| 5 | Domains + Caddy admin API + HTTPS | `[ ]` |
+| 4 | GitHub deploy: clone, build, webhook HMAC, rollback | `[x]` |
+| 5 | Domains + Caddy admin API + HTTPS | `[ ]` next |
 | 6 | Polish: backups, settings, notifications, README | `[ ]` |
 
 ---
@@ -119,6 +119,46 @@ DOCKER_API_PASSWORD='…' node scripts/integration-docker.mjs
 - Frontend: `pages/Containers.tsx`, `pages/containers/{LogsDrawer,InspectDrawer}.tsx`,
   `components/Drawer.tsx`, `hooks/{useContainers,useDockerStats,useContainerLogs}.ts`
 
+### Phase 4 — GitHub deployment
+- `docker-compose.dev.yml` — `BUILD: 1` added (BUILD was 0); SESSION/GRPC stay 0 so
+  only classic `POST /build` is reachable. New `capturehost-apps` bridge network is
+  created by compose through a one-shot `network-init` container (the proxy is
+  deliberately **not** on it). Comment explains that the proxy filters by URL, not
+  by body, so the backend enforces container safety itself.
+- `db/migrations/003_deployments.sql` — project runtime columns (slug, ports, health
+  path, limits, container id, encrypted webhook secret + GitHub token), deployment
+  bookkeeping, `webhook_deliveries` (primary key = `X-GitHub-Delivery`).
+- `004_deployment_states.sql` — rebuilds `deployments` with the real state list
+  (`queued→cloning→building→starting→health-check→live`, plus failed/cancelled/rolled-back).
+- `005_project_capabilities.sql` — per-project `capabilities` CSV (allowlist enforced in code).
+- `services/containerPolicy.ts` — **the only place a container config is produced**:
+  explicit whitelist, `CapDrop: ALL` + 4-capability allowlist, `no-new-privileges`,
+  no binds/devices, loopback-only published port inside a range, memory/swap/cpu/pids,
+  `unless-stopped`, labels `capturehost.managed/project/deployment`. `assertSafeContainerOptions()`
+  re-validates the finished payload (privileged, binds, host net/pid/ipc, devices,
+  caps, missing limits, 0.0.0.0 publish, restart policy).
+- `services/git.ts` — strict `https://github.com/owner/repo` zod pattern, `execFile`
+  argv with `--` before the URL, `GIT_TERMINAL_PROMPT=0`, `credential.helper=`,
+  shallow single-branch no-tags clone into a fresh dir, timeout, size cap,
+  symlink-escape check, token via a 0700 askpass script (never in URL/argv/logs).
+- `services/deployments.ts` — one-build-at-a-time queue, state machine, log capture
+  with consecutive-line collapse, blue/green swap on a **fresh host port per deploy**,
+  health check (restart-loop aware, two stable samples when no HTTP path), image
+  retention (`capturehost/<slug>:<sha>`, keep N), rollback without rebuild, cancel.
+- `services/logHub.ts` — fan-out for live build logs.
+- `db/projects.repo.ts` — all project/deployment/env queries + delivery dedupe.
+- `routes/projects.ts` — CRUD, deploy, cancel, rollback, env (write-only values),
+  webhook secrets, `WS /ws/deployments/:depId/logs`, `/api/project-ports`.
+- `routes/webhook.ts` — HMAC-SHA256 over the **raw** body (`timingSafeEqual`),
+  verified before parsing; push/branch filter, ping, replay-safe, per-IP limit, audit.
+- `app.ts` — raw-body content-type parser for the webhook path only, `DeploymentService`
+  wiring, `PUBLIC_PREFIXES` for `/api/webhooks/github/`.
+- `scripts/integration-deploy.mjs` — create → deploy → fetch → redeploy → rollback →
+  env round trip → delete, scoped to its own project.
+- Frontend: `api/projects.ts`, rewritten `pages/Projects.tsx`, `pages/ProjectDetail.tsx`
+  (Overview/Deployments/Logs/Environment/Settings), `pages/projects/{NewProjectModal,DeploymentLog}.tsx`,
+  `styles/projects.css`, tab strip scrolls at 390px.
+
 ---
 
 ## 6. Route inventory (actual — auth + CSRF)
@@ -150,9 +190,26 @@ DOCKER_API_PASSWORD='…' node scripts/integration-docker.mjs
 | DELETE | `/api/docker/containers/:id` | session | **yes** (+rate limit) |
 | WS | `/ws/docker/logs/:id` | session **+** Origin allowlist | n/a |
 | WS | `/ws/docker/stats` | session **+** Origin allowlist | n/a |
+| GET | `/api/projects` | session | n/a |
+| POST | `/api/projects` | session | **yes** |
+| GET | `/api/projects/:id` | session | n/a |
+| PATCH | `/api/projects/:id` | session | **yes** |
+| DELETE | `/api/projects/:id?confirm=<name>` | session | **yes** |
+| POST | `/api/projects/:id/deploy` | session | **yes** (+rate limit) |
+| GET | `/api/projects/:id/deployments` | session | n/a |
+| POST | `/api/projects/:id/deployments/:depId/cancel` | session | **yes** |
+| POST | `/api/projects/:id/rollback` | session | **yes** (+rate limit) |
+| GET | `/api/projects/:id/env` | session | n/a |
+| PUT | `/api/projects/:id/env` | session | **yes** |
+| DELETE | `/api/projects/:id/env/:key` | session | **yes** |
+| GET | `/api/projects/:id/webhook` | session | n/a |
+| GET | `/api/project-ports` | session | n/a |
+| WS | `/ws/deployments/:depId/logs` | session **+** Origin allowlist | n/a |
+| POST | `/api/webhooks/github/:projectId` | **public** — HMAC over the raw body | n/a |
 
-Reserved: Phase 4 projects/deployments/webhook, Phase 5 domains, Phase 6 settings/backup.
-There is deliberately **no exec endpoint and no create-container endpoint**.
+Reserved: Phase 5 domains, Phase 6 settings/backup.
+There is deliberately **no exec endpoint and no create-container endpoint**; the only
+way a container is created is the deploy pipeline, which owns the safety policy.
 
 ---
 
@@ -202,6 +259,36 @@ There is deliberately **no exec endpoint and no create-container endpoint**.
 26. **Uptime comes from Docker's status string** (`parseDockerUptime`), because
     `listContainers` has no `StartedAt`; unrecognised strings show "—".
 
+### Phase 4
+27. **Safety lives in the backend, not the proxy.** The socket proxy filters URLs
+    and methods, never request bodies, so `services/containerPolicy.ts` is the only
+    producer of container config and re-validates its own output before sending it.
+28. **Capabilities: `CapDrop: ALL` + a 4-entry allowlist** (`NET_BIND_SERVICE`,
+    `CHOWN`, `SETUID`, `SETGID`). Stock `nginx:alpine` needs all four — without them
+    it dies with `chown("/var/cache/nginx/client_temp") failed`. Anything else
+    (`SYS_ADMIN`, `NET_ADMIN`, `SYS_PTRACE`) is refused before a payload exists.
+29. **Every deploy gets a fresh host port.** Blue/green cannot publish the port the
+    old container still holds ("port is already allocated"); the project's port
+    column is updated after the swap, and the pipeline retries the next free port if
+    Docker still disagrees. Phase 5 will front this port with Caddy.
+30. **Health check must be restart-loop aware.** A crash-looping container is briefly
+    "running", so `State.Restarting` counts as failure, and with no HTTP path the
+    process must stay up across two samples ~1s apart.
+31. **Git tokens never touch argv or the URL** — a 0700 askpass script in a temp
+    dir, deleted in `finally`. `credential.helper=` is cleared so a cached
+    credential cannot silently change who we authenticate as.
+32. **The webhook holds the raw body.** A dedicated content parser keeps the buffer
+    only for `/api/webhooks/github/`; HMAC is verified before JSON is parsed,
+    `timingSafeEqual` compares, and `X-GitHub-Delivery` is the primary key of
+    `webhook_deliveries` so a replay inserts nothing.
+33. **Deployments state list is `queued→cloning→building→starting→health-check→live`**
+    plus failed/cancelled/rolled-back (migration 004 rebuilds the table; the 001 list
+    did not describe the pipeline). `projects.status` keeps the 001 vocabulary
+    (`idle`/`deploying`/`running`/`failed`).
+34. **One build at a time.** A laptop building two images at once makes both look
+    broken; the queue is in memory and a restart drops it (the deployment row stays
+    `queued` and can be cancelled).
+
 ---
 
 ## 8. Known gaps / deliberate deferrals
@@ -213,14 +300,24 @@ There is deliberately **no exec endpoint and no create-container endpoint**.
   - Set `SESSION_COOKIE_SECURE=true` the moment the dashboard is served over
     HTTPS (the cookie then also gains the `__Host-` prefix).
 - `docker-compose.yml` for production — Phase 6 (dev compose exists).
-- Full README with troubleshooting — Phase 6.
-- Light theme toggle — not requested yet. Disk stat card has no sparkline.
+- **The deployment queue is in memory** — a backend restart loses queued builds
+  (the row stays `queued`; cancel it and deploy again).
+- **Webhooks need a tunnel.** The backend listens on 127.0.0.1, so GitHub cannot
+  reach `/api/webhooks/github/:id` directly. Expose only that path (Cloudflare
+  Tunnel / Tailscale Funnel) before turning the webhook on in the repo settings.
+- **Only deploy repositories you trust.** Builds run arbitrary code from the
+  Dockerfile (and the container runs it). There is no sandbox beyond the container
+  policy yet.
+- Failed image builds leave layer cache behind; `docker builder prune` occasionally.
+- No per-project build args, no compose/multi-service projects, no Dockerfile
+  generation — deliberate (Dockerfile required).
+- Disk stat card has no sparkline.
 - No "forgot password" by design: recovery is `npm run reset:admin` from a shell.
-- `projects`, `deployments`, `domains`, `env_vars` tables still unused.
+- `domains` table still unused (Phase 5).
 - Audit log has no retention/rotation yet (Phase 6).
-- No container **create** or **exec** from the UI — deliberate (Phase 4 creates
-  containers through its own deploy path).
-- Inspect shows env **names only**; editing env vars is Phase 4/6.
+- No container **create** or **exec** from the UI — deliberate (containers are only
+  created by the deploy pipeline, which owns the safety policy).
+- Inspect shows env **names only**; editing env vars happens per project (Phase 4).
 - The stats poller calls `listContainers` every tick; fine for a laptop, would
   want the event stream on a busier host.
 
@@ -268,6 +365,34 @@ There is deliberately **no exec endpoint and no create-container endpoint**.
 - Cleaned up only my own `capturehost.test=true` containers; `beautiful_heisenberg`
   untouched (created 2026-08-05, still exited).
 - `npm audit`: 0 vulnerabilities, both packages.
+
+### 2026-11-08 — session 5
+- Phase 4 shipped (229 tests, 13 files): container safety policy, git service,
+  deployment pipeline, projects/deployments/env/webhook routes, live build-log
+  socket, Projects + Project Detail pages.
+- Real deploy of `Sidharth7082/capturehost-test-app`: clone → build → run → health
+  check → live on `127.0.0.1:8101`, ~5 s warm, log captured in `deployments.log`.
+- Verified in this session: correct HMAC accepted (202 + deployment), bad signature
+  rejected (401), replay of the same `X-GitHub-Delivery` answered `duplicate`,
+  rollback re-ran the previous image without rebuilding, `scripts/integration-deploy.mjs`
+  green end to end, container inspect shows `privileged:false`, `CapDrop:ALL`,
+  `no-new-privileges`, no binds/mounts/devices, loopback-only port, 512 MB / 0.5 cpu / 256 pids.
+- Bugs found by running it, not by tests:
+  - **`git clone` was given a path relative to its own cwd** → the clone landed in
+    `destDir/destDir`, so the Dockerfile "did not exist" and the size read as 0 MB
+    (cwd is now the parent, and the pipeline resolves `DEPLOY_DATA_DIR` to an absolute path);
+  - **`cap_drop: ALL` alone killed nginx** (`chown("/var/cache/nginx/client_temp") failed`),
+    which is why the capability allowlist exists at all;
+  - **blue/green could not publish the same host port** ("port is already allocated"),
+    so every deploy now takes a fresh port and the project's port follows the swap;
+  - **a crash-looping container was reported healthy**, because it is briefly
+    "running" between restarts — the health check now treats `Restarting` as failure
+    and wants two stable samples;
+  - the build log repeated `Downloading` hundreds of times (consecutive duplicates
+    are collapsed), and the log viewer stayed on the old deployment after a deploy
+    (it now jumps to the newest);
+  - five tabs overflowed the 390px layout by 31px (tab strip scrolls).
+- `npm audit`: 0 vulnerabilities, both packages. `tsc` clean, frontend `npm run build` green.
 
 ---
 

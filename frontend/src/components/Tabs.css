@@ -26,3 +26,27 @@
   color: var(--text);
   box-shadow: var(--shadow-sm);
 }
+
+/*
+ * Narrow screens: five tabs do not fit in 390px, so the strip scrolls
+ * horizontally instead of pushing the page wider than the viewport (which
+ * would give the whole layout a sideways scrollbar).
+ */
+@media (max-width: 640px) {
+  .tabs {
+    display: flex;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tabs__tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}

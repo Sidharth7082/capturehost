@@ -62,7 +62,7 @@ describe('password hashing', () => {
     expect(checkPasswordStrength('password1234')?.message).toMatch(/too common/);
     expect(checkPasswordStrength('adminadmin123', 'admin')?.message).toMatch(/username/);
     expect(checkPasswordStrength('aaaaaaaaaaaaa')?.message).toMatch(/repeated/);
-    expect(checkPasswordStrength('correct-horse-battery-42')).toBeNull();
+    expect(checkPasswordStrength('fixture-password-do-not-use-42')).toBeNull();
   });
 });
 

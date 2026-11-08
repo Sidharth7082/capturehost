@@ -89,10 +89,14 @@ docker compose -f docker-compose.dev.yml up -d     # socket proxy on 127.0.0.1:2
 ```
 
 `tecnativa/docker-socket-proxy` is pinned and exposes exactly what the UI needs
-(`CONTAINERS`, `IMAGES`, `INFO`, `EVENTS`, `PING`, `POST`). Everything else —
-`EXEC`, `VOLUMES`, `NETWORKS`, `SECRETS`, `SYSTEM`, `BUILD`, `SWARM`, `PLUGINS`
-— stays at 0, so a compromise of the dashboard cannot exec into a container or
-prune the host.
+(`CONTAINERS`, `IMAGES`, `INFO`, `EVENTS`, `PING`, `POST`, `BUILD`). Everything else
+— `EXEC`, `VOLUMES`, `NETWORKS`, `SECRETS`, `SYSTEM`, `SWARM`, `PLUGINS`, `SESSION`,
+`GRPC` — stays at 0, so a compromise of the dashboard cannot exec into a container
+or prune the host. `BUILD` is only needed for Phase 4's `POST /build`; BuildKit
+(`SESSION`/`GRPC`) stays off, so the classic builder is the only path.
+
+Because the proxy filters **URLs and methods, not request bodies**, the backend
+enforces container safety itself (`backend/src/services/containerPolicy.ts`).
 
 Three things are enforced in the backend, not just hidden in the UI:
 
@@ -114,6 +118,59 @@ Live end-to-end check (creates and removes only its own labelled container):
 ```bash
 DOCKER_API_PASSWORD='…' node scripts/integration-docker.mjs
 ```
+
+## Deploy a site from GitHub
+
+A project = one repository, one branch, one Dockerfile, one container.
+
+1. **Projects → New Project**: name, `https://github.com/owner/repo`, branch,
+   Dockerfile path (`Dockerfile` by default) and the port the container listens on.
+   A GitHub token is optional and only needed for private repositories — it is
+   encrypted with `APP_ENCRYPTION_KEY` and never shown again.
+2. Press **Deploy**. The pipeline clones (shallow, single branch), builds the
+   Dockerfile, starts the container, health-checks it, and only then stops the
+   previous one (blue/green).
+3. Open `http://127.0.0.1:<host port>` — the port is shown on the project page.
+   Every deploy takes a fresh port from `CONTAINER_PORT_RANGE_*`; Phase 5 puts
+   Caddy in front so the hostname stops changing.
+
+What the container gets, always (see `containerPolicy.ts`, tests included):
+
+| Setting | Value |
+|---|---|
+| privileged / host network / host pid / host ipc | never |
+| bind mounts, devices, docker socket | never |
+| capabilities | `drop: ALL`, add back only `NET_BIND_SERVICE`, `CHOWN`, `SETUID`, `SETGID` |
+| security options | `no-new-privileges` |
+| memory / swap | project limit, hard-capped by `CONTAINER_MEMORY_MB_MAX` |
+| CPU / pids | project limit, hard-capped |
+| published port | `127.0.0.1` only, inside the configured range |
+| restart policy | `unless-stopped` |
+| labels | `capturehost.managed=true`, `capturehost.project=<id>` |
+
+**Webhook auto-deploy.** Each project has a secret shown in *Settings → Webhook*.
+GitHub signs the body with HMAC-SHA256 (`X-Hub-Signature-256`); the backend verifies
+it over the raw bytes before parsing JSON, only accepts `push` to the project's
+branch, and deduplicates by `X-GitHub-Delivery`. Since the backend listens on
+127.0.0.1, expose **only** `/api/webhooks/github/<id>` through a tunnel before
+adding the webhook in the repository settings.
+
+```bash
+# manual webhook smoke test (no tunnel needed, talks to loopback directly)
+BODY='{"ref":"refs/heads/main","after":"<sha>"}'
+SECRET='<from Settings → Webhook>'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | sed 's/^.*= //')
+curl -i -X POST http://127.0.0.1:8787/api/webhooks/github/1 \
+  -H 'content-type: application/json' -H 'x-github-event: push' \
+  -H "x-github-delivery: manual-$RANDOM" -H "x-hub-signature-256: sha256=$SIG" \
+  --data-raw "$BODY"
+
+# full end-to-end check: create → deploy → redeploy → rollback → delete
+cd ~/capturehost/backend && node scripts/integration-deploy.mjs
+```
+
+Rollback re-runs the previous successful image without rebuilding. Images are
+tagged `capturehost/<slug>:<short-sha>` and pruned to `DEPLOY_KEEP_IMAGES` (3).
 
 ## Security model (short version)
 
@@ -144,16 +201,31 @@ DOCKER_API_PASSWORD='…' node scripts/integration-docker.mjs
 - Errors are generic to the client, detailed to the server log.
 - Every login, failure, lockout, logout, 2FA change, password change and session
   revocation is written to `audit_log` (never with secrets in `detail`).
+- **Deployed containers are built from a fixed whitelist** (`containerPolicy.ts`):
+  no privileged mode, no host namespaces, no bind mounts or docker socket, no
+  devices, `drop: ALL` plus four allowlisted capabilities, `no-new-privileges`,
+  memory/CPU/pids limits, loopback-only publishing. The finished payload is
+  re-validated before it is sent, so a future caller cannot bypass the policy.
+- **Git is never a shell string**: `execFile` with an argv array, `--` before the
+  URL, `GIT_TERMINAL_PROMPT=0`, `credential.helper=` cleared, shallow clone, size
+  and time limits, symlinks that escape the build context rejected.
+- **GitHub tokens** travel through a one-time 0700 askpass script, never in the URL,
+  argv or logs; they are stored encrypted with the same key as TOTP.
+- **The webhook is the only public POST**: HMAC-SHA256 over the raw body with
+  `timingSafeEqual`, verified before JSON parsing, branch-filtered, replay-safe.
 
 ## Layout
 
 ```
 capturehost/
-  backend/           Fastify API, SQLite, metrics sampler
+  backend/           Fastify API, SQLite, metrics sampler, deploy pipeline
     src/db/migrations/   numbered SQL, applied once
-    tests/               vitest: migrations, metrics, gpu, api + ws
+    src/services/        metrics, docker, containerPolicy, git, deployments
+    tests/               vitest: migrations, metrics, api, auth, docker, policy, git, webhook, pipeline
+    scripts/             setup/reset admin, integration checks
   frontend/          React dashboard
     src/components/      one CSS file per component
-    src/pages/           Dashboard (live) + phase scaffolds
+    src/pages/           Dashboard, Containers, Projects + ProjectDetail, Settings, Logs
+  docker-compose.dev.yml   socket proxy + capturehost-apps network
   PROGRESS.md        phase state, decisions, how to resume
 ```

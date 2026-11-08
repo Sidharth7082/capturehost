@@ -65,6 +65,27 @@ const EnvSchema = z.object({
   // socket proxy is protected by its label; this is for anything else.
   DOCKER_PROTECTED_CONTAINERS: z.string().default('capturehost-socket-proxy'),
   DOCKER_ACTIONS_PER_MINUTE: z.coerce.number().int().min(1).max(600).default(30),
+
+  // ---- deployments (Phase 4) ----
+  DEPLOY_DATA_DIR: z.string().default('./data/deployments'),
+  DEPLOY_BUILD_TIMEOUT_MS: z.coerce.number().int().min(30_000).max(3_600_000).default(900_000),
+  DEPLOY_KEEP_IMAGES: z.coerce.number().int().min(1).max(10).default(3),
+  DEPLOY_MAX_LOG_BYTES: z.coerce.number().int().min(4096).max(8_388_608).default(524_288),
+  DEPLOY_MAX_CLONE_BYTES: z.coerce.number().int().min(1_048_576).default(209_715_200),
+  DEPLOY_ACTIONS_PER_MINUTE: z.coerce.number().int().min(1).max(120).default(10),
+  GIT_TIMEOUT_MS: z.coerce.number().int().min(5000).max(600_000).default(120_000),
+
+  // Hard ceilings the safety policy applies to anything we run.
+  CONTAINER_MEMORY_MB_DEFAULT: z.coerce.number().int().min(64).max(16384).default(512),
+  CONTAINER_MEMORY_MB_MAX: z.coerce.number().int().min(64).max(32768).default(4096),
+  CONTAINER_CPU_DEFAULT: z.coerce.number().min(0.1).max(16).default(0.5),
+  CONTAINER_CPU_MAX: z.coerce.number().min(0.1).max(32).default(4),
+  CONTAINER_PIDS_LIMIT: z.coerce.number().int().min(16).max(4096).default(256),
+  CONTAINER_PORT_RANGE_START: z.coerce.number().int().min(1024).max(65_000).default(8100),
+  CONTAINER_PORT_RANGE_END: z.coerce.number().int().min(1024).max(65_500).default(8999),
+  CONTAINER_NETWORK: z.string().min(1).max(64).default('capturehost-apps'),
+  HEALTH_CHECK_TIMEOUT_MS: z.coerce.number().int().min(2000).max(120_000).default(30_000),
+  WEBHOOK_MAX_BODY_BYTES: z.coerce.number().int().min(1024).max(10_485_760).default(1_048_576),
 });
 
 export interface AppConfig {
@@ -106,6 +127,28 @@ export interface AppConfig {
     protectedContainers: string[];
     actionsPerMinute: number;
   };
+
+  deploy: {
+    dataDir: string;
+    buildTimeoutMs: number;
+    keepImages: number;
+    maxLogBytes: number;
+    maxCloneBytes: number;
+    actionsPerMinute: number;
+    gitTimeoutMs: number;
+    /** Hard limits the container safety policy enforces. */
+    memoryDefaultMb: number;
+    memoryMaxMb: number;
+    cpuDefault: number;
+    cpuMax: number;
+    pidsLimit: number;
+    portRangeStart: number;
+    portRangeEnd: number;
+    network: string;
+    healthCheckTimeoutMs: number;
+  };
+
+  webhook: { maxBodyBytes: number };
 }
 
 /**
@@ -214,5 +257,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         .filter((entry) => entry.length > 0),
       actionsPerMinute: value.DOCKER_ACTIONS_PER_MINUTE,
     },
+
+    deploy: {
+      dataDir: value.DEPLOY_DATA_DIR,
+      buildTimeoutMs: value.DEPLOY_BUILD_TIMEOUT_MS,
+      keepImages: value.DEPLOY_KEEP_IMAGES,
+      maxLogBytes: value.DEPLOY_MAX_LOG_BYTES,
+      maxCloneBytes: value.DEPLOY_MAX_CLONE_BYTES,
+      actionsPerMinute: value.DEPLOY_ACTIONS_PER_MINUTE,
+      gitTimeoutMs: value.GIT_TIMEOUT_MS,
+      memoryDefaultMb: value.CONTAINER_MEMORY_MB_DEFAULT,
+      memoryMaxMb: value.CONTAINER_MEMORY_MB_MAX,
+      cpuDefault: value.CONTAINER_CPU_DEFAULT,
+      cpuMax: value.CONTAINER_CPU_MAX,
+      pidsLimit: value.CONTAINER_PIDS_LIMIT,
+      portRangeStart: value.CONTAINER_PORT_RANGE_START,
+      portRangeEnd: value.CONTAINER_PORT_RANGE_END,
+      network: value.CONTAINER_NETWORK,
+      healthCheckTimeoutMs: value.HEALTH_CHECK_TIMEOUT_MS,
+    },
+
+    webhook: { maxBodyBytes: value.WEBHOOK_MAX_BODY_BYTES },
   };
 }

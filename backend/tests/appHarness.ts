@@ -1,6 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import type { LightMyRequestResponse } from 'fastify';
 import { buildApp } from '../src/app.js';
+import type { DeploymentService } from '../src/services/deployments.js';
 import { DockerService } from '../src/services/docker.js';
 import { createFakeDocker, type FakeContainerSpec, type FakeDocker } from './dockerFake.js';
 import { createTestDb, seedAdmin, silentLogger, testConfig, TEST_PASSWORD, TEST_USERNAME, type TestDb } from './helpers.js';
@@ -33,7 +34,12 @@ const DEFAULT_DOCKER_SPECS: FakeContainerSpec[] = [
  * one production runs without needing a daemon in CI.
  */
 export async function startApp(
-  options: { seed?: boolean; dockerSpecs?: FakeContainerSpec[] } = {},
+  options: {
+    seed?: boolean;
+    dockerSpecs?: FakeContainerSpec[];
+    /** Pipeline stub so route tests never shell out to git or docker. */
+    deployments?: DeploymentService;
+  } = {},
 ): Promise<AuthedApp> {
   const testDb = createTestDb();
   const config = testConfig();
@@ -48,6 +54,7 @@ export async function startApp(
     gpuProbe: async () => null,
     startSampler: true,
     dockerService: new DockerService({ config, logger: silentLogger, client: dockerFake.client }),
+    ...(options.deployments ? { deploymentService: options.deployments } : {}),
   });
 
   await app.listen({ port: 0, host: '127.0.0.1' });
