@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/brand/header.png" alt="CaptureHost — self-hosted dashboard for one laptop" width="100%"></p>
+
 # CaptureHost
 
 A self-hosted hosting dashboard for one laptop: watch the machine, control

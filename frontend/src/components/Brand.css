@@ -1,0 +1,44 @@
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/*
+ * Fixed box, no intrinsic-size guesswork: the width/height attributes on the img
+ * and these rules agree, so the space is reserved before the SVG decodes.
+ */
+.brand__mark {
+  display: block;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  user-select: none;
+}
+
+.brand__name {
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.brand__name-accent {
+  color: var(--accent);
+}
+
+/* Login card: mark above the form, name under it, everything centred. */
+.brand--login {
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.brand--login .brand__mark {
+  width: 44px;
+  height: 44px;
+}
+
+.brand--login .brand__name {
+  font-size: 15px;
+}

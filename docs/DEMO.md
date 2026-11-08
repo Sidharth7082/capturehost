@@ -1,3 +1,5 @@
+<p align="center"><img src="brand/header.png" alt="CaptureHost" width="100%"></p>
+
 # CaptureHost — 7-minute demo
 
 For a BCA project review. Everything here runs on one laptop, uses **only the

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type JSX } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { CommandPalette } from './CommandPalette';
+import { Brand } from './Brand';
 import { Dropdown } from './Dropdown';
 import { Icon } from './Icon';
 import { useToast } from './Toast';
@@ -73,10 +74,7 @@ export function Layout(): JSX.Element {
       >
         <aside className="sidebar" aria-label="Main navigation">
           <div className="sidebar__brand">
-            <span className="sidebar__logo" aria-hidden="true">
-              CH
-            </span>
-            <span className="sidebar__name">CaptureHost</span>
+            <Brand />
             <span className="sidebar__version">v0.1.0</span>
           </div>
 

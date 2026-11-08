@@ -54,27 +54,6 @@
   min-height: 44px;
 }
 
-.sidebar__logo {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-input);
-  background: linear-gradient(145deg, var(--accent), #8b5cf6);
-  color: var(--accent-contrast);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  box-shadow: var(--shadow-sm);
-}
-
-.sidebar__name {
-  font-weight: var(--weight-semibold);
-  letter-spacing: -0.02em;
-  white-space: nowrap;
-}
-
 .sidebar__version {
   padding: 1px 6px;
   border: 1px solid var(--border-strong);
@@ -309,7 +288,7 @@
 }
 
 /* Collapsed rail: hide text, centre icons, keep labels for screen readers. */
-.shell[data-collapsed='true'] .sidebar__name,
+.shell[data-collapsed='true'] .brand__name,
 .shell[data-collapsed='true'] .sidebar__version,
 .shell[data-collapsed='true'] .nav-item__label,
 .shell[data-collapsed='true'] .tag-soon,
@@ -500,7 +479,7 @@
   }
 
   /* Even when "collapsed", a drawer should show full labels. */
-  .shell[data-collapsed='true'] .sidebar__name,
+  .shell[data-collapsed='true'] .brand__name,
   .shell[data-collapsed='true'] .sidebar__version,
   .shell[data-collapsed='true'] .nav-item__label,
   .shell[data-collapsed='true'] .tag-soon,

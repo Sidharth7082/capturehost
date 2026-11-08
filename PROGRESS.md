@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 18 — unstyled toolbars fixed, shared CSS made global)
+Last updated: 2026-11-08 (session 19 — brand: SVG mark, sidebar, login, favicon, docs header)
 
 ---
 
@@ -459,6 +459,38 @@ way a container is created is the deploy pipeline, which owns the safety policy.
     line with an ellipsis capped at 40ch, `__meta` at 46ch (wide enough for
     `owner/repo · branch`, narrow enough to keep the table from scrolling sideways).
 
+### Session 19 (brand)
+63. **The mark is drawn from measurements, not from the JPEG.** The brief named
+    `frontend/public/brand/logo-mark.png`, which never existed; the assets turned up
+    in `assests/` as three files arriving over ten minutes: `logo.jpg` (the simple
+    early mark), then `Logo with text.jpg` and `Favicon set.jpg` (the real mark:
+    thicker arms with **two holes each**, a thinner right section, and a lens dot in
+    a scooped mouth). The last two are the brand kit and the geometry comes from
+    them, measured by ImageMagick pixel sampling on a 512 grid, never by eye:
+    arms 104..193 tall on the left and 104..172 on the right with a 34 radius end,
+    middle bar 212..300 scooped to end at x228 by a circle r84 at (312,256), lens
+    r40 at the same centre, holes r8.8 at x157/x198, ink 113..398 × 104..408.
+64. **Two colour schemes, as in the kit.** `logo-mark-transparent.svg` is the
+    gradient mark (bars `#6366f1 → #8b5cf6`, lens off-white `#f5f5f7`) cropped to a
+    320-unit square around the ink — the UI version, used by the sidebar and login.
+    `logo-mark.svg` puts the same mark at 62% on the `#161e31` brand navy (the "dark
+    background" logo). `favicon.svg` inverts it like the reference tile: gradient
+    `#5167ee → #8559f4` background, plain off-white mark, no holes (they dissolve at
+    16px anyway). The lockup JPEG paints the lens violet; this follows the brief and
+    the favicon, which both say off-white.
+65. **`components/Brand.tsx` is the only place the lockup is built** — mark,
+    "Capture" in `--text`, "Host" in `--accent` (#6366f1) — used by the sidebar
+    (`Layout`) and the login card (`variant="login"`, stacked above the form). The
+    `<img>` carries explicit `width`/`height` plus fixed CSS dimensions, so the rail
+    reserves the box before the SVG decodes: measured CLS 0.
+66. **Brand assets are static, so they live in `frontend/public/brand/`** (Vite
+    copies them to `dist/`, Caddy serves `/brand/...`): `logo-mark.svg`,
+    `logo-mark-transparent.svg`, `favicon.svg`, `favicon-32.png`,
+    `apple-touch-icon-180.png`. The wide lockup is `docs/brand/header.svg` with a 2×
+    `header.png` behind it, and the source JPEGs sit beside it
+    (`docs/brand/logo-source.jpg`, `docs/brand/logo-lockup.jpg`,
+    `docs/brand/favicon-source.jpg`) — the misspelled `assests/` directory is gone.
+
 ## 8. Known gaps / deliberate deferrals
 
 - **2FA is off on the admin by the owner's decision** (2026-11-08). The dashboard
@@ -881,6 +913,35 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   display:flex}`, and `dist/index.html` references that hash. Caddy serves `dist`
   from disk, so no restart is needed — the CSS filename changes with the build.
 - Gates: 340 backend tests, `tsc` clean both packages, build 104 modules.
+
+### 2026-11-08 — session 19 (logo: SVG, sidebar, login, favicon, docs)
+- The brief's `frontend/public/brand/logo-mark.png` did not exist and no such file
+  existed anywhere on the machine; the assets arrived in `assests/` as
+  `logo.jpg`, then `Logo with text.jpg` and `Favicon set.jpg` mid-session. The first
+  measurement pass was against the simple early mark and was thrown away: the two
+  later files are the real mark (arms with two holes each, a thinner right section
+  and a lens in a scooped mouth), so the SVG was rebuilt from those.
+- Assets: `frontend/public/brand/{logo-mark,logo-mark-transparent,favicon}.svg`,
+  `favicon-32.png`, `apple-touch-icon-180.png` (rsvg-convert),
+  `docs/brand/header.{svg,png}`. Sources moved to `docs/brand/`.
+- `components/Brand.tsx` + `Brand.css` replace the "CH" badge in the sidebar and
+  the badge+text block on the login card (now stacked above the form); the old
+  `.sidebar__logo/.sidebar__name/.login-brand__logo/.login-brand__name` rules are
+  gone and `.brand__name` took `.sidebar__name`'s place in both collapsed-rail rules
+  (hidden in the rail, kept in the mobile drawer). `index.html` gained the three
+  icon links and `theme-color #161e31`.
+- Verified without the owner's password (the login page is public; a throwaway
+  `__BrandFixture` rendered the real `.shell`/`.sidebar`/`Brand` markup and was
+  deleted before the commit): rail 240px → brand 215×54, mark 30×30; collapsed rail
+  64px → mark 30×30 centred, name and version `display:none`; "Host" computes
+  `rgb(99,102,241)`; login mark 44×44 above the first field at 1440, and at 390 the
+  card is 358 wide with `scrollWidth − clientWidth = 0`; layout-shift score 0 at
+  both widths; `/brand/*` answers 200 with the right content type on :5173 and
+  through Caddy on :8090, and the built login page loads the mark
+  (`naturalWidth 320`, `complete: true`).
+- Not verified by me: the sidebar inside the logged-in app at 390 (drawer) — the
+  fixture covered the rail and the CSS rule, not a real drawer session.
+- Gates: 340 backend tests, `tsc` clean both packages, build 106 modules.
 
 ## 10. How to resume (for the next agent)
 

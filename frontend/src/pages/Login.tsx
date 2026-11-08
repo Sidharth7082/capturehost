@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, fetchSetupStatus } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { Button } from '../components/Button';
+import { Brand } from '../components/Brand';
 import { Icon } from '../components/Icon';
 import './Login.css';
 
@@ -94,15 +95,10 @@ export function Login(): JSX.Element {
     <div className="login-page">
       <div className="login-card">
         <div className="login-brand">
-          <span className="login-brand__logo" aria-hidden="true">
-            CH
-          </span>
-          <div>
-            <p className="login-brand__name">CaptureHost</p>
-            <p className="login-brand__tag">
-              {step === 'password' ? 'Sign in to your dashboard' : 'Two-factor verification'}
-            </p>
-          </div>
+          <Brand variant="login" />
+          <p className="login-brand__tag">
+            {step === 'password' ? 'Sign in to your dashboard' : 'Two-factor verification'}
+          </p>
         </div>
 
         {setupComplete === false && (

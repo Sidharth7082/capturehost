@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="96 96 320 320" width="320" height="320" role="img" aria-label="CaptureHost">
+  <title>CaptureHost</title>
+  <!--
+    CaptureHost mark: two arms and a middle bar around a lens. Measured off
+    docs/brand/logo-source.jpg and assests/Favicon set.jpg (see PROGRESS.md 63).
+    Gradient #6366f1 -> #8b5cf6, lens off-white, holes cut out of each bar.
+  -->
+  <defs>
+    <linearGradient id="ch-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6366f1" />
+      <stop offset="1" stop-color="#8b5cf6" />
+    </linearGradient>
+    <mask id="ch-mask">
+      <g fill="#fff">
+    <rect x="149.5" y="104" width="131.5" height="89" />
+    <circle cx="157.5" cy="148.5" r="44.5" />
+    <rect x="269" y="104" width="95" height="68" />
+    <circle cx="364" cy="138.0" r="34" />
+    <rect x="157.5" y="320" width="131.5" height="88" />
+    <circle cx="157.5" cy="364.0" r="44.5" />
+    <rect x="269" y="340" width="95" height="68" />
+    <circle cx="364" cy="374.0" r="34" />
+    <rect x="149" y="212" width="151" height="88" />
+    <circle cx="157" cy="256.0" r="44" />
+      </g>
+      <circle cx="312" cy="256" r="84" fill="#000" />
+    <g fill="#000">
+    <circle cx="157" cy="148.5" r="8.8" />
+    <circle cx="198" cy="148.5" r="8.8" />
+    <circle cx="157" cy="256.0" r="8.8" />
+    <circle cx="198" cy="256.0" r="8.8" />
+    <circle cx="157" cy="364.0" r="8.8" />
+    <circle cx="198" cy="364.0" r="8.8" />
+    </g>
+    </mask>
+  </defs>
+
+  <rect x="96" y="96" width="320" height="320" fill="url(#ch-grad)" mask="url(#ch-mask)" />
+  <circle cx="312" cy="256" r="40" fill="#f5f5f7" />
+</svg>
