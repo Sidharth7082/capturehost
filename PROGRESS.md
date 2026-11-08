@@ -378,6 +378,13 @@ way a container is created is the deploy pipeline, which owns the safety policy.
 
 ## 8. Known gaps / deliberate deferrals
 
+- **2FA is off on the admin by the owner's decision** (2026-11-08). The dashboard
+  binds loopback only, so a strong password is the accepted bar for now and the
+  doctor will keep reporting exactly one warn about it. Revisit at the moment
+  anything is exposed beyond this laptop — Tailscale or any tunnel — where 2FA
+  *and* `SESSION_COOKIE_SECURE=true` over HTTPS become prerequisites. With 2FA off
+  there are no recovery codes: `reset:admin` is the only way back in.
+
 - **No global Deployments page.** History is per project (Projects → a project →
   Deployments tab), which is enough while there is one project. The sidebar entry,
   the `/deployments` route and the placeholder page were removed in session 14;
