@@ -23,9 +23,12 @@ import { createServer, type AppInstance } from './server.js';
 import { AuthService } from './services/auth.js';
 import { BackupService } from './services/backup.js';
 import { DoctorService } from './services/doctor.js';
+import { DomainMonitor } from './services/domainMonitor.js';
 import { NotificationService } from './services/notifications.js';
 import { RetentionService } from './services/retention.js';
 import { CaddyService } from './services/caddy.js';
+import { ContainerWatcher } from './services/containerWatcher.js';
+import { RejectionTracker } from './routes/webhook.js';
 import { DeploymentService } from './services/deployments.js';
 import { DockerService } from './services/docker.js';
 import { DockerStatsPoller } from './services/dockerStats.js';
@@ -172,6 +175,21 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     options.notificationService ?? new NotificationService({ db, config, logger });
   const backups = options.backupService ?? new BackupService({ db, config, logger });
   const retention = new RetentionService({ db, config, logger });
+  const domainMonitor = new DomainMonitor({ db, caddy, notifications, logger });
+  const containerWatcher = new ContainerWatcher({ docker, notifications, logger });
+
+  // A lockout is worth knowing about while away; the handler only ever sends the
+  // IP and the lockout window.
+  auth.onLockout = ({ ip, retryAfterSeconds }) => {
+    void notifications.notify({
+      event: 'auth.lockout',
+      severity: 'warning',
+      title: `Login locked out for ${ip}`,
+      body: `Too many failed logins from ${ip}. The account is locked for another ${Math.ceil(retryAfterSeconds / 60)} min.`,
+      dedupeKey: `auth.lockout:${ip}`,
+      meta: { ip },
+    });
+  };
   const doctor = new DoctorService({ db, config, logger, caddy, docker });
   // Re-entering the password for a download is cheap to brute force otherwise.
   const downloadLimiter = new SessionRateLimiter(3);
@@ -257,7 +275,7 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     logHub,
     actions: deployActions,
   });
-  registerDomainRoutes(app, { db, config, caddy, logger });
+  registerDomainRoutes(app, { db, config, caddy, monitor: domainMonitor, logger });
   registerOpsRoutes(app, {
     db,
     config,
@@ -267,7 +285,15 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     doctor,
     downloadLimiter,
   });
-  registerWebhookRoutes(app, { db, config, logger, deployments, ipLimiter: webhookLimiter });
+  registerWebhookRoutes(app, {
+    db,
+    config,
+    logger,
+    deployments,
+    ipLimiter: webhookLimiter,
+    notifications,
+    rejections: new RejectionTracker(),
+  });
   registerErrorHandler(app, logger);
 
   let sessionPurgeTimer: NodeJS.Timeout | null = null;
@@ -311,6 +337,7 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     caddy.start();
 
     retention.start();
+    containerWatcher.start();
 
     // Scheduled backups, with a notification when one fails.
     backups.scheduleNotify((error: unknown) => {
@@ -338,6 +365,11 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
               dedupeKey: 'disk.high',
             });
           }
+
+          // Domain health: a failing hostname only alerts after three strikes.
+          await domainMonitor.checkAll().catch((error: unknown) => {
+            logger.warn({ err: error }, 'domain sweep failed');
+          });
 
           const status = await caddy.status();
           if (!status.reachable) {
@@ -371,6 +403,7 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     caddy.stop();
     retention.stop();
     backups.stop();
+    containerWatcher.stop();
     if (healthTimer) clearInterval(healthTimer);
     if (sessionPurgeTimer) clearInterval(sessionPurgeTimer);
     hub.clear();

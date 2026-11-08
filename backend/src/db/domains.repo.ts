@@ -13,6 +13,7 @@ export interface DomainRow {
   last_error: string | null;
   latency_ms: number | null;
   https_ok: number | null;
+  consecutive_failures: number;
   created_at: number;
   updated_at: number | null;
 }
@@ -27,7 +28,8 @@ export interface DomainTarget extends DomainRow {
 
 const COLUMNS = `
   d.id, d.project_id, d.hostname, d.tls_enabled, d.status, d.enabled,
-  d.last_checked_at, d.last_error, d.latency_ms, d.https_ok, d.created_at, d.updated_at`;
+  d.last_checked_at, d.last_error, d.latency_ms, d.https_ok, d.consecutive_failures,
+  d.created_at, d.updated_at`;
 
 const TARGET_COLUMNS = `${COLUMNS}, p.name AS project_name, p.slug AS project_slug,
   p.host_port, p.container_id`;
@@ -101,6 +103,11 @@ export function recordCheck(
     httpsOk: result.httpsOk === null ? null : result.httpsOk ? 1 : 0,
     now,
   });
+}
+
+/** Counter used by the alerting threshold; reset to 0 by any healthy check. */
+export function setConsecutiveFailures(db: Db, id: number, failures: number, now: number): void {
+  db.prepare('UPDATE domains SET consecutive_failures = ?, updated_at = ? WHERE id = ?').run(failures, now, id);
 }
 
 export function deleteDomain(db: Db, id: number): void {

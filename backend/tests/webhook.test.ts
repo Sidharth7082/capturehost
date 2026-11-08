@@ -205,3 +205,42 @@ describe('verifySignature', () => {
     expect(verifySignature(tampered, SECRET, header)).toBe(false);
   });
 });
+
+describe('repeated rejections', () => {
+  it('raises exactly one notification after five rejected signatures', async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      // A fresh delivery id each time: the rejection is the signature, not the id.
+      await deliver(pushBody(), {
+        signature: sign(pushBody(), `wrong-secret-${attempt}`),
+        deliveryId: `bad-${attempt}`,
+      });
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const rows = harness.db
+      .prepare("SELECT event, title FROM notifications WHERE event = 'webhook.rejected_repeatedly'")
+      .all() as { event: string; title: string }[];
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.title).toContain('5 rejected webhooks');
+    expect(fake.calls.deploy).toHaveLength(0);
+  });
+
+  it('does not notify below the threshold', async () => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await deliver(pushBody(), {
+        signature: sign(pushBody(), `wrong-secret-${attempt}`),
+        deliveryId: `bad-low-${attempt}`,
+      });
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const count = harness.db
+      .prepare("SELECT COUNT(*) AS count FROM notifications WHERE event = 'webhook.rejected_repeatedly'")
+      .get() as { count: number };
+
+    expect(count.count).toBe(0);
+  });
+});

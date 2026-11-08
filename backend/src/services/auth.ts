@@ -541,6 +541,13 @@ export class AuthService {
     }
   }
 
+  /**
+   * Set by the composition root so a lockout can reach the notification feed.
+   * It receives the client IP and the lockout window — never a password, a
+   * token or anything the user typed.
+   */
+  onLockout?: (info: { ip: string; lockedUntil: number; retryAfterSeconds: number }) => void;
+
   private assertNotLocked(kind: 'ip' | 'username', key: string, now: number): void {
     const attempt = getAttempt(this.db, kind, key);
     if (attempt?.locked_until == null) return;
@@ -553,6 +560,15 @@ export class AuthService {
       success: false,
       now,
     });
+
+    if (kind === 'ip') {
+      this.onLockout?.({
+        ip: key,
+        lockedUntil: attempt.locked_until,
+        retryAfterSeconds: Math.ceil((attempt.locked_until - now) / 1000),
+      });
+    }
+
     throw AppError.loginLocked((attempt.locked_until - now) / 1000);
   }
 

@@ -8,6 +8,7 @@ import { decryptString } from '../crypto/secretbox.js';
 import type { Logger } from '../logger.js';
 import type { AppInstance } from '../server.js';
 import type { DeploymentService } from '../services/deployments.js';
+import type { NotificationService } from '../services/notifications.js';
 import { AppError } from '../utils/errors.js';
 import type { SessionRateLimiter } from '../utils/rateLimit.js';
 
@@ -28,8 +29,41 @@ import type { SessionRateLimiter } from '../utils/rateLimit.js';
 
 const ParamSchema = z.object({ projectId: z.coerce.number().int().positive() });
 
+/**
+ * Sliding window of rejections per project.
+ *
+ * One wrong secret is a typo; five inside ten minutes is a misconfigured
+ * webhook or someone probing. Kept in memory on purpose: it only needs to be
+ * right for the current run, and the alert itself is deduped by the notifier.
+ */
+export class RejectionTracker {
+  readonly threshold: number;
+  private readonly windowMs: number;
+  private readonly hits = new Map<number, number[]>();
+
+  constructor(threshold = 5, windowMs = 10 * 60_000) {
+    this.threshold = threshold;
+    this.windowMs = windowMs;
+  }
+
+  /** Records one rejection and returns how many fall inside the window. */
+  record(projectId: number, now = Date.now()): number {
+    const recent = (this.hits.get(projectId) ?? []).filter((at) => now - at < this.windowMs);
+    recent.push(now);
+    this.hits.set(projectId, recent);
+    return recent.length;
+  }
+
+  reset(projectId: number): void {
+    this.hits.delete(projectId);
+  }
+}
+
 export interface WebhookRouteDeps {
   db: Db;
+  /** Optional so the route can be mounted without a notifier in tests. */
+  notifications?: Pick<NotificationService, 'notify'>;
+  rejections?: RejectionTracker;
   config: AppConfig;
   logger: Logger;
   deployments: DeploymentService;
@@ -59,6 +93,28 @@ export function verifySignature(rawBody: Buffer, secret: string, header: string 
 }
 
 export function registerWebhookRoutes(app: AppInstance, deps: WebhookRouteDeps): void {
+  const tracker = deps.rejections ?? new RejectionTracker();
+
+  /**
+   * Counts a rejection and, past the threshold, raises one alert per project.
+   * The notifier's cooldown keeps a sustained attack to one message per window.
+   */
+  const noteRejection = (projectId: number, projectName: string, reason: string, ip: string): void => {
+    const count = tracker.record(projectId, Date.now());
+    if (count < tracker.threshold) return;
+
+    tracker.reset(projectId);
+
+    void deps.notifications?.notify({
+      event: 'webhook.rejected_repeatedly',
+      severity: 'warning',
+      title: `${count} rejected webhooks for ${projectName}`,
+      body: `Last rejection: ${reason} (from ${ip}). Check the webhook secret and the branch name.`,
+      dedupeKey: `webhook.rejected:${projectId}`,
+      meta: { projectId, count, reason },
+    });
+  };
+
   app.post('/api/webhooks/github/:projectId', async (request, reply) => {
     const parsed = ParamSchema.safeParse(request.params);
     if (!parsed.success) {
@@ -82,6 +138,7 @@ export function registerWebhookRoutes(app: AppInstance, deps: WebhookRouteDeps):
         ip,
         success: false,
       });
+      noteRejection(project.id, project.name, 'rate limited', ip);
       return reply.code(429).headers({ 'retry-after': String(rate.retryAfterSeconds) }).send({ ok: false });
     }
 
@@ -110,6 +167,7 @@ export function registerWebhookRoutes(app: AppInstance, deps: WebhookRouteDeps):
         ip,
         success: false,
       });
+      noteRejection(project.id, project.name, 'bad signature', ip);
       deps.logger.warn({ projectId: project.id, ip }, 'webhook rejected: signature mismatch');
       return reply.code(401).send({ ok: false });
     }
@@ -145,6 +203,7 @@ export function registerWebhookRoutes(app: AppInstance, deps: WebhookRouteDeps):
         ip,
         success: false,
       });
+      noteRejection(project.id, project.name, 'unparseable payload', ip);
       return reply.code(400).send({ ok: false });
     }
 

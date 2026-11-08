@@ -15,6 +15,7 @@ import { getProject } from '../db/projects.repo.js';
 import { requireAuth } from '../middleware/auth.js';
 import type { AppInstance } from '../server.js';
 import type { CaddyService } from '../services/caddy.js';
+import type { DomainMonitor } from '../services/domainMonitor.js';
 import { assertAllowedUpstream, normaliseHostname, validateHostname } from '../services/domains.js';
 import type { Logger } from '../logger.js';
 import { AppError } from '../utils/errors.js';
@@ -34,6 +35,8 @@ export interface DomainRoutesDeps {
   db: Db;
   config: AppConfig;
   caddy: CaddyService;
+  /** Counts consecutive failures and raises the outage/recovery alerts. */
+  monitor: DomainMonitor;
   logger: Logger;
 }
 
@@ -201,7 +204,7 @@ export function registerDomainRoutes(app: AppInstance, deps: DomainRoutesDeps): 
     const domain = getDomain(db, id);
     if (!domain) throw AppError.notFound('Domain not found');
 
-    const result = await caddy.checkDomain(id);
+    const result = await deps.monitor.checkOne(id);
 
     writeAudit(db, {
       action: 'domain.check',
@@ -212,7 +215,13 @@ export function registerDomainRoutes(app: AppInstance, deps: DomainRoutesDeps): 
       success: result.ok,
     });
 
-    return { ok: result.ok, status: result.status, latencyMs: result.latencyMs, error: result.error };
+    return {
+      ok: result.ok,
+      status: result.status,
+      latencyMs: result.latencyMs,
+      error: result.error,
+      consecutiveFailures: result.consecutiveFailures,
+    };
   });
 
   // ------------------------------------------------------------------ caddy

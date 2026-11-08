@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 7 — Phase 6 complete)
+Last updated: 2026-11-08 (session 8 — alerting completed)
 
 ---
 
@@ -375,10 +375,11 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   generation — deliberate (Dockerfile required).
 - Disk stat card has no sparkline.
 - No "forgot password" by design: recovery is `npm run reset:admin` from a shell.
-- Events that emit into the feed today: deploy failed, scheduled backup failed,
-  disk above threshold, Caddy unreachable, Caddy drift. Not yet wired: container
-  restart loop / unexpected exit, domain check failing repeatedly, login lockout,
-  repeated webhook rejections (the feed accepts them; nothing raises them yet).
+- Events that emit into the feed: deploy failed, scheduled backup failed, disk
+  above threshold, Caddy unreachable, Caddy drift, managed container restart
+  loop or unexpected exit, domain failing 3 checks in a row (and recovery),
+  login lockout per IP, and 5+ rejected webhooks per project in 10 minutes.
+  All of them go through the same dedupe key + cooldown.
 - `npm run doctor` and the Security page are read-only by design.
 - Light theme toggle and the disk sparkline were deliberately skipped (Phase 6
   says skip anything needing a new phase; both need design work on the token set).
@@ -513,6 +514,20 @@ way a container is created is the deploy pipeline, which owns the safety policy.
     neither of which exists (`ts` and `last_at` do);
   - `.env` was mode 644 — the doctor caught it, `chmod 600` applied.
 - 312 tests, `tsc` clean, `npm audit` 0, frontend build green.
+
+### 2026-11-08 — session 8 (alerting)
+- Wired the four alerting paths that only matter while away:
+  `ContainerWatcher` (managed containers: restart loop, unexpected exit — polled
+  every 15 s, inspect only when something looks wrong), `DomainMonitor`
+  (consecutive-failure counter in SQLite, alert on the 3rd, alert on recovery,
+  swept by the 5-minute health watcher), `AuthService.onLockout` (IP + window
+  only), and `RejectionTracker` (5 rejections per project inside 10 minutes).
+- Migration 008 adds `domains.consecutive_failures`, so a restart does not reset
+  the counter. Manual and scheduled checks now both go through the monitor.
+- 326 tests (14 new): restart loop, unmanaged ignored, running→exited, clean exit
+  at startup stays quiet, 2 vs 3 domain failures, recovery, lockout payload has
+  the IP and not the password, tracker window/project isolation/reset, and the
+  route-level "5 bad signatures → exactly one notification".
 
 ## 10. How to resume (for the next agent)
 

@@ -428,6 +428,30 @@ export class DockerService {
     };
   }
 
+  /**
+   * Raw runtime state, for the container watcher: exit code and restart count
+   * are only in `inspect`, and only matter when something looks wrong.
+   */
+  async containerRuntime(
+    id: string,
+  ): Promise<{ state: string; exitCode: number; restartCount: number; labels: Record<string, string> } | null> {
+    try {
+      const info = (await this.docker.getContainer(id).inspect()) as {
+        State?: { Status?: string; ExitCode?: number; RestartCount?: number };
+        Config?: { Labels?: Record<string, string> };
+      };
+
+      return {
+        state: info.State?.Status ?? 'unknown',
+        exitCode: info.State?.ExitCode ?? 0,
+        restartCount: info.State?.RestartCount ?? 0,
+        labels: info.Config?.Labels ?? {},
+      };
+    } catch {
+      return null;
+    }
+  }
+
   // ------------------------------------------------------- deployment helpers
 
   /**

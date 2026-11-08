@@ -306,8 +306,11 @@ asks for the password again, is rate limited to 3/min and is audited).
 ## Notifications, retention and the doctor
 
 - **Notifications** (bell page): deploy failed, scheduled backup failed, disk
-  above `NOTIFY_DISK_THRESHOLD_PCT`, Caddy unreachable or drifted. Events dedupe
-  by key with a `NOTIFY_COOLDOWN_MINUTES` window, so a restart loop pages once.
+  above `NOTIFY_DISK_THRESHOLD_PCT`, Caddy unreachable or drifted, a managed
+  container in a restart loop or exiting unexpectedly, a domain failing three
+  checks in a row (and its recovery), a login lockout per IP, and five rejected
+  webhooks for one project inside ten minutes. Events dedupe by key with a
+  `NOTIFY_COOLDOWN_MINUTES` window, so a restart loop pages once.
 - **Outbound channel**: one `NOTIFY_WEBHOOK_URL` (ntfy, Discord, Telegram-style).
   https only, hostname resolved and private/loopback/link-local answers refused,
   redirects not followed, short timeout, URL path (the usual secret) never shown.
