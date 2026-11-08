@@ -52,7 +52,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done + verified by runni
 | SQLite CLI | `/usr/bin/sqlite3` |
 | Repo | `/home/capture/capturehost` |
 | git identity | Sidharth7082 / sidharthkaushal558@gmail.com |
-| Local dev admin | username `sid`, **2FA off** |
+| Local dev admin | username `capture` (renamed from `sid` by `reset:admin` on 2026-11-08), **2FA off** |
 | Pre-existing containers | `beautiful_heisenberg` (hello-world, exited) — **never touch** |
 
 ---
@@ -601,16 +601,24 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   both packages, HEAD `b81aca0`.
 - Reported "Invalid username or password": all six failures in `audit_log` say
   `unknown username` (`capture` ×5, `capture-host` ×1), never "wrong password" —
-  the account is **`sid`**. `getAdminByUsername` compares with `=`, the `admin.username`
-  column has no `COLLATE NOCASE`, so the name is case- and space-sensitive: `Sid`
-  fails as surely as `capture-host`. The password was never actually tested.
+  the account was **`sid`** at the time. `getAdminByUsername` compares with `=`, the
+  `admin.username` column has no `COLLATE NOCASE`, so the name is case- and
+  space-sensitive: `Sid` fails as surely as `capture-host`. The password was never
+  actually tested.
 - Those five misses had also tripped the per-IP bucket (`login_attempts`,
   `127.0.0.1`, locked to 20:28), so the correct credentials would have been
   refused as locked anyway. Rows cleared for `127.0.0.1` / `capture` /
   `capture-host` in `backend/data/capturehost.db`; that table is the live lockout
   state, so no restart was needed.
+- Later the same evening the owner replaced the account (`admin.updated_at`
+  20:26:46, new username **`capture`**, new argon2id hash, id still 1 so every
+  session was dropped): `setup:admin` refuses when a row exists, so that path is
+  `reset:admin`. Username and password now differ from the ones used in phases 1–6.
 - `curl 127.0.0.1:8787/api/auth/setup-status` → `{"setupComplete":true}`, same
   through the vite proxy on :5173.
+- `npm run doctor` on this state: **14 pass / 2 warn / 0 fail** — the warns are
+  "2FA is off" and "development defaults in use" (`CADDY_MODE=local`), both
+  expected on the dev copy.
 
 ## 10. How to resume (for the next agent)
 
