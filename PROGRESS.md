@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 14 — Deployments sidebar entry removed)
+Last updated: 2026-11-08 (session 15 — published to GitHub)
 
 ---
 
@@ -48,9 +48,10 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done + verified by runni
 | Docker | daemon 29.9.2, compose v5.6.1 (`pacman -S docker-compose`), client `~/.local/bin/docker` |
 | Socket proxy | `capturehost-socket-proxy` running, `127.0.0.1:2375`, socket mounted **ro** |
 | GPU | RTX 3050 Laptop, 4096 MiB — `nvidia-smi` works |
-| Caddy | **NOT installed** — `pacman -S caddy` in Phase 5 |
+| Caddy | 2.11.8 as a **user-local binary** `~/.local/bin/caddy` (not the pacman package) — admin `127.0.0.1:2019`, apps `:8080`, dashboard `:8090` |
 | SQLite CLI | `/usr/bin/sqlite3` |
 | Repo | `/home/capture/capturehost` |
+| GitHub origin | `https://github.com/Sidharth7082/capturehost` — **public**, default branch `master`, remote `origin` |
 | git identity | Sidharth7082 / sidharthkaushal558@gmail.com |
 | Local dev admin | username `capture` (renamed from `sid` by `reset:admin` on 2026-11-08), **2FA off** |
 | Pre-existing containers | `beautiful_heisenberg` (hello-world, exited) — **never touch** |
@@ -657,6 +658,27 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   empty content area need a logged-in browser; the owner's session is in their
   browser and nobody should be typing that password into an agent.
 - 2FA still off on the dev admin (`capture`) — the owner is doing it themselves.
+
+### 2026-11-08 — session 15 (published to GitHub)
+- Created `Sidharth7082/capturehost` (public) from this working tree and pushed
+  `master`: the full history (16 commits through `9aa54df`, plus this state-file
+  commit), branch now tracks `origin/master`.
+  Description and eight topics set (self-hosted, hosting-dashboard, fastify, react,
+  typescript, sqlite, docker, caddy).
+- Pre-push audit before anything left the machine:
+  - `git ls-files` had no `.env`, `*.db`, `*.chbk`, `data/`, `node_modules/` or
+    `dist/`; `.gitignore` covers all of them;
+  - `git grep` for `ghp_`/`github_pat_`/`gho_`/`AKIA`/`xox[baprs]-`/private-key
+    headers across tracked files: no hits;
+  - `git log -p --all` for a **filled** `APP_ENCRYPTION_KEY=`/`BACKUP_ENCRYPTION_KEY=`
+    or a GitHub token: zero hits, so no secret is buried in an earlier commit;
+  - `backend/.env.example` ships both key lines **empty**.
+- Verified on the remote, not locally: tree of `master` = 226 entries with no
+  secret/db/binary paths, `raw.githubusercontent.com/.../README.md` returns the real
+  19,367-byte README, `PROGRESS.md` 674 lines, `backend/package.json` name
+  `capturehost-backend`, and `backend/.env` answers **404**.
+- Public was the owner's habit for portfolio repos (15 of 23); `gh repo edit
+  Sidharth7082/capturehost --visibility private` flips it in one command if not.
 
 ## 10. How to resume (for the next agent)
 
