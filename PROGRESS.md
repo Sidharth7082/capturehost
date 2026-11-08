@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 19 — brand: SVG mark, sidebar, login, favicon, docs header)
+Last updated: 2026-11-09 (session 20 — full icon set: ico, PNG sizes, maskable, manifest)
 
 ---
 
@@ -491,6 +491,27 @@ way a container is created is the deploy pipeline, which owns the safety policy.
     (`docs/brand/logo-source.jpg`, `docs/brand/logo-lockup.jpg`,
     `docs/brand/favicon-source.jpg`) — the misspelled `assests/` directory is gone.
 
+### Session 20 (icon set)
+67. **The tab icon is a simplified mark, generated — not a shrunken copy.** The full
+    mark (stepped arms, two holes per blade, r8.8) turns to mush below 32px, so
+    `favicon.svg` uses three uniform blades 84 tall with 52 gaps on a 512 canvas,
+    a bigger lens (r58) in a r100 mouth, no holes, and a 22% rounded tile. Every
+    raster comes from that same vector, so the set cannot drift.
+    A two-blade variant was measured at 16px and was **worse** (the mouth chopped the
+    arms into a "3"); three blades stays.
+68. **Full set, all generated from the vector** in `frontend/public/`:
+    `favicon.svg` · `favicon.ico` (48/32/16) · `favicon-16x16.png` ·
+    `favicon-32x32.png` · `apple-touch-icon.png` (180, full-bleed square) ·
+    `icon-192.png` · `icon-512.png` · `icon-maskable-512.png` (mark at 80%, background
+    full-bleed) · `site.webmanifest` (name/short_name CaptureHost, standalone,
+    `#0b0d14` theme and background). `index.html` links ico → svg → png sizes +
+    apple-touch + manifest, and the meta `theme-color` is now `#0b0d14` to match.
+69. **Caddy needed one header rule for the manifest.** Caddy 2 has no `mime`
+    directive and its table has no `.webmanifest` entry, so `/site.webmanifest`
+    arrived with an **empty** Content-Type and Chrome refuses to install the app from
+    a manifest served that way. Fixed with a path matcher +
+    `header @manifest Content-Type application/manifest+json` in the dashboard site.
+
 ## 8. Known gaps / deliberate deferrals
 
 - **2FA is off on the admin by the owner's decision** (2026-11-08). The dashboard
@@ -941,6 +962,35 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   (`naturalWidth 320`, `complete: true`).
 - Not verified by me: the sidebar inside the logged-in app at 390 (drawer) — the
   fixture covered the rail and the CSS rule, not a real drawer session.
+- Gates: 340 backend tests, `tsc` clean both packages, build 106 modules.
+
+### 2026-11-09 — session 20 (icon set from the vector mark)
+- The brief's Leonardo pipeline assumed a raster `icon-1024.png`; there is no
+  raster art in this repo (all marks are SVG), so the set was generated from
+  `favicon.svg` instead — same artwork, no tracing step.
+- New: `favicon.svg` (bolder tab variant), `favicon.ico` (48/32/16 in one file),
+  `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png` (180 full-bleed),
+  `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `site.webmanifest`.
+  `index.html`: ico/svg/png/apple-touch/manifest links, `theme-color #0b0d14`,
+  apple app title. The old `brand/{favicon.svg,favicon-32.png,
+  apple-touch-icon-180.png}` are gone — one place for icons now.
+- `deploy/caddy/Caddyfile`: `header @manifest Content-Type application/manifest+json`
+  (Caddy 2 has no `mime` directive; the first attempt failed `caddy validate` with
+  "unrecognized directive: mime" and was replaced). Reloaded with
+  `caddy reload --config deploy/caddy/Caddyfile`; the deployed demo app still
+  answers 200 through the apps listener afterwards.
+- Verified by HTTP, not by eye: every file answers 200 with the right content type on
+  the dev server **and** through Caddy on :8090 — favicon.ico
+  `image/vnd.microsoft.icon` / `image/x-icon`, svg `image/svg+xml`, pngs
+  `image/png`, manifest `application/manifest+json` (empty before the Caddy fix).
+  Static files are served by Vite/Caddy directly, so the auth guard never sees them;
+  the backend's helmet CSP applies to `/api` responses only, and `img-src 'self'`
+  would allow them anyway.
+- Legibility, measured as pixels rather than claimed: 64px shows the three blades and
+  the lens clearly; 32px still reads as a C with a dot; **16px resolves into three
+  white bands with two small blobs in the middle row** — readable as this app's tile,
+  not as a C. That is the floor for a three-blade mark at 16px, and the two-blade
+  alternative was worse.
 - Gates: 340 backend tests, `tsc` clean both packages, build 106 modules.
 
 ## 10. How to resume (for the next agent)

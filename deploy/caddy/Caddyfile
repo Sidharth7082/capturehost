@@ -54,6 +54,12 @@ http://:8080 {
 http://capturehost.localhost:8090 {
 	bind 127.0.0.1
 
+	# Caddy 2 has no mime directive and its table has no .webmanifest, so the
+	# manifest arrived with an empty Content-Type and Chrome will not install the
+	# app with it. One header rule fixes it without touching the system mime.types.
+	@manifest path /site.webmanifest
+	header @manifest Content-Type application/manifest+json
+
 	# Host gate first, so another hostname that resolves here cannot read the
 	# dashboard just by hitting the port.
 	@dashboard host capturehost.localhost

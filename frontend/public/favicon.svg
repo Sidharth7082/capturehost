@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="CaptureHost">
+  <title>CaptureHost</title>
+  <defs>
+    <linearGradient id="ch-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1" />
+      <stop offset="1" stop-color="#8b5cf6" />
+    </linearGradient>
+    <mask id="ch-mask">
+      <g fill="#fff">
+      <rect x="120.0" y="78" width="280.0" height="84" />
+      <circle cx="120.0" cy="120" r="42" />
+      <circle cx="392.0" cy="120" r="42" />
+      <rect x="120.0" y="214" width="238.0" height="84" />
+      <circle cx="120.0" cy="256" r="42" />
+      <rect x="120.0" y="350" width="280.0" height="84" />
+      <circle cx="120.0" cy="392" r="42" />
+      <circle cx="392.0" cy="392" r="42" />
+      </g>
+      <circle cx="299" cy="256" r="100" fill="#000" />
+    </mask>
+  </defs>
+
+  <rect width="512" height="512" rx="112.6" fill="url(#ch-grad)" />
+  <g>
+    <rect width="512" height="512" fill="#fff" mask="url(#ch-mask)" />
+    <circle cx="299" cy="256" r="58" fill="#ffffff" />
+  </g>
+</svg>
