@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 6 — Phase 5 complete)
+Last updated: 2026-11-08 (session 7 — Phase 6 complete)
 
 ---
 
@@ -12,10 +12,10 @@ Last updated: 2026-11-08 (session 6 — Phase 5 complete)
 
 | Item | Value |
 |---|---|
-| Current phase | **Phase 5 — domains + Caddy: DONE**, awaiting "next" for Phase 6 |
+| Current phase | **Phase 6 — backups, alerts, production: DONE**. All six phases built. |
 | Verified state | 229 backend tests pass, `tsc` clean both packages, `npm audit` 0 vulns, real deploy of `Sidharth7082/capturehost-test-app` live on 127.0.0.1:8101, screenshots at 1440 and 390 |
 | Last commit | `feat(phase-4): github deployments, webhooks and rollback` |
-| Next action | Phase 6 — backups, settings polish, notifications, production compose |
+| Next action | none — the build is complete; production runner is option A (systemd, `deploy/systemd/`) |
 
 ---
 
@@ -31,7 +31,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done + verified by runni
 | 3 | Docker: socket proxy, container control, live logs | `[x]` |
 | 4 | GitHub deploy: clone, build, webhook HMAC, rollback | `[x]` |
 | 5 | Domains + Caddy admin API + HTTPS | `[x]` |
-| 6 | Polish: backups, settings, notifications, README | `[ ]` next |
+| 6 | Backups, notifications, retention, doctor, production setup | `[x]` |
 
 ---
 
@@ -215,7 +215,17 @@ DOCKER_API_PASSWORD='…' node scripts/integration-docker.mjs
 | GET | `/api/projects/:id/domains` | session | n/a |
 | GET | `/api/caddy/status` | session | n/a |
 
-Reserved: Phase 6 settings/backup.
+| GET | `/api/backups` | session | n/a |
+| POST | `/api/backups` | session | **yes** |
+| DELETE | `/api/backups/:id` | session | **yes** |
+| POST | `/api/backups/:id/download` | session **+ password re-entry** (+3/min) | **yes** |
+| GET | `/api/notifications` | session | n/a |
+| POST | `/api/notifications/read` | session | **yes** |
+| GET | `/api/notifications/channel` | session | n/a |
+| POST | `/api/notifications/test` | session | **yes** |
+| GET | `/api/doctor` | session | n/a |
+
+No reserved routes left.
 There is deliberately **no exec endpoint and no create-container endpoint**; the only
 way a container is created is the deploy pipeline, which owns the safety policy.
 
@@ -321,6 +331,28 @@ way a container is created is the deploy pipeline, which owns the safety policy.
     only when the immediate peer is `TRUST_PROXY_ADDRESSES` (loopback), so a
     spoofed header from anywhere else cannot move the login-lockout key.
 
+### Phase 6
+42. **Backups use SQLite's online snapshot**, not a file copy, then gzip +
+    AES-256-GCM with `BACKUP_ENCRYPTION_KEY` (separate from `APP_ENCRYPTION_KEY`,
+    so one leak does not open both). Every backup runs `integrity_check` before
+    it is written and again when verified.
+43. **Restore refuses while the backend is listening** and keeps
+    `<db>.before-restore-<ts>` next to the database before overwriting it.
+44. **Notifications dedupe by key + cooldown** (default 30 min), so a restart
+    loop produces one alert per window. The outbound channel is https-only, DNS
+    is resolved and private/loopback/link-local answers are refused, redirects
+    are not followed, and the URL path (where ntfy/Discord put the secret) is
+    never returned to the UI.
+45. **Retention deletes only rows older than the window**, and only from tables
+    this app owns. Docker image retention stays in the deploy pipeline (keep N
+    per project) and project deletion — there is no global prune anywhere.
+46. **The doctor is read-only**: it inspects config, the proxy's answers, file
+    modes and git, and prints no secret values, only whether something is set.
+47. **Production runner is option A** (systemd + dedicated `capturehost` user,
+    outside the docker group, `deploy/systemd/capturehost.service`), because it
+    keeps Caddy's admin API on loopback and needs no image rebuilds; option B
+    (compose) is written up in `deploy/DESIGN-NOTE.md` but not shipped.
+
 ## 8. Known gaps / deliberate deferrals
 
 - **Phase 5 prerequisites (flagged by the user, do not forget):**
@@ -343,6 +375,13 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   generation — deliberate (Dockerfile required).
 - Disk stat card has no sparkline.
 - No "forgot password" by design: recovery is `npm run reset:admin` from a shell.
+- Events that emit into the feed today: deploy failed, scheduled backup failed,
+  disk above threshold, Caddy unreachable, Caddy drift. Not yet wired: container
+  restart loop / unexpected exit, domain check failing repeatedly, login lockout,
+  repeated webhook rejections (the feed accepts them; nothing raises them yet).
+- `npm run doctor` and the Security page are read-only by design.
+- Light theme toggle and the disk sparkline were deliberately skipped (Phase 6
+  says skip anything needing a new phase; both need design work on the token set).
 - `public` mode is implemented but **untested** (needs a real domain and an
   inbound port); the README says so.
 - The Caddyfile's dashboard site answers an empty 200 (not 404) for a foreign
@@ -453,6 +492,27 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   - a reload wipes API routes (demonstrated live: `routes: null`), and one domain
     PATCH restored them.
 - `npm audit`: 0 vulnerabilities, both packages. 288 tests, `tsc` clean.
+
+### 2026-11-08 — session 7
+- Phase 6 shipped: encrypted backups (online snapshot + verify + restore + CLI),
+  notification feed with dedupe/cooldown, SSRF-guarded outbound webhook,
+  retention job, security doctor (CLI + API + page), systemd unit for option A,
+  production compose for the proxy, README rewritten, `.env.example` complete.
+- Live evidence: backup created (236.4 KB, sha256, integrity ok), verify ok with
+  14 tables, restore refused while the server ran and succeeded into a scratch
+  DB (14 tables, safety copy kept), doctor 13 pass / 3 warn / 0 fail, a stored
+  notification suppressed a duplicate inside the cooldown, and a loopback
+  `NOTIFY_WEBHOOK_URL` was refused as an SSRF target.
+- Bugs found while running it:
+  - the :8090 listener answered an empty 200 for foreign hosts (fixed with an
+    explicit fallback site that returns 404);
+  - the fd scan for `docker.sock` used `readFileSync` on `/proc/self/fd/*`,
+    which blocks forever on a pipe — switched to `readlinkSync` (the doctor hung
+    for minutes before this);
+  - retention pointed at `audit_log.created_at` and `login_attempts.updated_at`,
+    neither of which exists (`ts` and `last_at` do);
+  - `.env` was mode 644 — the doctor caught it, `chmod 600` applied.
+- 312 tests, `tsc` clean, `npm audit` 0, frontend build green.
 
 ## 10. How to resume (for the next agent)
 

@@ -116,6 +116,31 @@ const EnvSchema = z.object({
   WEBHOOK_PUBLIC_HOST: z.string().max(253).optional(),
   // Addresses allowed to set X-Forwarded-For (the loopback proxy only).
   TRUST_PROXY_ADDRESSES: z.string().default('127.0.0.1,::1'),
+
+  // ---- backups (Phase 6) ----
+  BACKUP_DIR: z.string().default('./data/backups'),
+  // Separate key from APP_ENCRYPTION_KEY, so a leaked app key cannot decrypt
+  // backups and a leaked backup key cannot decrypt env vars. Optional here so
+  // the server starts without it; creating a backup then fails loudly instead.
+  BACKUP_ENCRYPTION_KEY: z.string().optional(),
+  BACKUP_SCHEDULE_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+  BACKUP_KEEP_DAILY: z.coerce.number().int().min(1).max(90).default(7),
+  BACKUP_KEEP_WEEKLY: z.coerce.number().int().min(0).max(52).default(4),
+  BACKUP_MAX_AGE_HOURS: z.coerce.number().int().min(1).max(720).default(36),
+
+  // ---- notifications (Phase 6) ----
+  NOTIFY_WEBHOOK_URL: z.string().url().optional(),
+  NOTIFY_COOLDOWN_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
+  NOTIFY_DISK_THRESHOLD_PCT: z.coerce.number().min(50).max(99).default(90),
+  NOTIFY_TIMEOUT_MS: z.coerce.number().int().min(1000).max(15000).default(5000),
+
+  // ---- retention (Phase 6) ----
+  RETENTION_INTERVAL_MINUTES: z.coerce.number().int().min(5).max(1440).default(60),
+  RETENTION_AUDIT_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
+  RETENTION_DEPLOY_LOG_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
+  RETENTION_DELIVERIES_DAYS: z.coerce.number().int().min(1).max(3650).default(14),
+  RETENTION_ATTEMPTS_DAYS: z.coerce.number().int().min(1).max(3650).default(7),
+  RETENTION_NOTIFICATIONS_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
 });
 
 export interface AppConfig {
@@ -181,6 +206,32 @@ export interface AppConfig {
   };
 
   webhook: { maxBodyBytes: number };
+
+  backups: {
+    dir: string;
+    /** 32-byte key, or null when BACKUP_ENCRYPTION_KEY is not set. */
+    key: Buffer | null;
+    scheduleHours: number;
+    keepDaily: number;
+    keepWeekly: number;
+    maxAgeHours: number;
+  };
+
+  notify: {
+    webhookUrl: string | null;
+    cooldownMs: number;
+    diskThresholdPct: number;
+    timeoutMs: number;
+  };
+
+  retention: {
+    intervalMs: number;
+    auditDays: number;
+    deployLogDays: number;
+    deliveriesDays: number;
+    attemptsDays: number;
+    notificationsDays: number;
+  };
 
   caddy: {
     mode: 'local' | 'tunnel' | 'public';
@@ -323,6 +374,31 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
 
     webhook: { maxBodyBytes: value.WEBHOOK_MAX_BODY_BYTES },
+
+    backups: {
+      dir: value.BACKUP_DIR,
+      key: value.BACKUP_ENCRYPTION_KEY ? parseEncryptionKey(value.BACKUP_ENCRYPTION_KEY) : null,
+      scheduleHours: value.BACKUP_SCHEDULE_HOURS,
+      keepDaily: value.BACKUP_KEEP_DAILY,
+      keepWeekly: value.BACKUP_KEEP_WEEKLY,
+      maxAgeHours: value.BACKUP_MAX_AGE_HOURS,
+    },
+
+    notify: {
+      webhookUrl: value.NOTIFY_WEBHOOK_URL ?? null,
+      cooldownMs: value.NOTIFY_COOLDOWN_MINUTES * 60_000,
+      diskThresholdPct: value.NOTIFY_DISK_THRESHOLD_PCT,
+      timeoutMs: value.NOTIFY_TIMEOUT_MS,
+    },
+
+    retention: {
+      intervalMs: value.RETENTION_INTERVAL_MINUTES * 60_000,
+      auditDays: value.RETENTION_AUDIT_DAYS,
+      deployLogDays: value.RETENTION_DEPLOY_LOG_DAYS,
+      deliveriesDays: value.RETENTION_DELIVERIES_DAYS,
+      attemptsDays: value.RETENTION_ATTEMPTS_DAYS,
+      notificationsDays: value.RETENTION_NOTIFICATIONS_DAYS,
+    },
 
     caddy: {
       mode: value.CADDY_MODE,

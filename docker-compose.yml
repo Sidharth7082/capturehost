@@ -1,0 +1,82 @@
+# CaptureHost — production stack.
+#
+# The backend is NOT a container here: it runs as a systemd service under a
+# dedicated unprivileged user (see deploy/README.md and deploy/DESIGN-NOTE.md).
+# What is left for compose is the one thing that must be isolated from it —
+# the Docker socket proxy — plus the network deployed apps join.
+#
+#   docker compose up -d          # proxy + app network
+#   docker compose ps
+#
+# Why the backend is not here: Caddy's admin API has no authentication. Keeping
+# Caddy (system service) and the backend on loopback means that API is never on
+# a shared container network, and the backend never needs an image rebuild when
+# a dependency changes.
+
+services:
+  # Compose only creates a network that a service references, and the proxy must
+  # stay off the app network, so this throwaway container brings it into
+  # existence and exits.
+  network-init:
+    image: alpine:3.20
+    container_name: capturehost-network-init
+    command: ["true"]
+    restart: "no"
+    networks:
+      - capturehost-apps
+
+  docker-socket-proxy:
+    # Pinned: an unpinned proxy silently changes what it allows.
+    image: tecnativa/docker-socket-proxy:0.2.0
+    container_name: capturehost-socket-proxy
+    restart: unless-stopped
+
+    environment:
+      # The minimum the dashboard needs. Everything else stays 0 — in
+      # particular EXEC (shell in a container), SYSTEM (prune), VOLUMES,
+      # NETWORKS, SECRETS, SWARM, BUILD/SESSION/GRPC ownership.
+      CONTAINERS: 1
+      IMAGES: 1
+      INFO: 1
+      EVENTS: 1
+      PING: 1
+      POST: 1
+      BUILD: 1
+
+      EXEC: 0
+      VOLUMES: 0
+      NETWORKS: 0
+      SECRETS: 0
+      SERVICES: 0
+      SWARM: 0
+      AUTH: 0
+      COMMIT: 0
+      CONFIGS: 0
+      PLUGINS: 0
+      SYSTEM: 0
+      TASKS: 0
+      NODES: 0
+      SESSION: 0
+      GRPC: 0
+
+      # Note: this proxy filters by URL and method, never by request body. The
+      # backend enforces container safety itself (services/containerPolicy.ts).
+
+    volumes:
+      # Read-only: the proxy reads the socket, it must never rewrite it.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    ports:
+      # Loopback only. Publishing this on 0.0.0.0 is root on the host for
+      # anyone who can reach it.
+      - "127.0.0.1:2375:2375"
+
+    labels:
+      # The dashboard must never offer to stop the thing that gives it Docker
+      # access. Also enforced in the backend.
+      capturehost.protected: "true"
+
+networks:
+  capturehost-apps:
+    name: capturehost-apps
+    driver: bridge

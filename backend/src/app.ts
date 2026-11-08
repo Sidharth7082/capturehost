@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import websocket from '@fastify/websocket';
 import Docker from 'dockerode';
+import si from 'systeminformation';
 import type { AppConfig } from './config.js';
 import type { Db } from './db/connection.js';
 import { insertSample, pruneOlderThan } from './db/metrics.repo.js';
@@ -13,12 +14,17 @@ import { registerAuditRoutes } from './routes/audit.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerDockerRoutes } from './routes/docker.js';
 import { registerDomainRoutes } from './routes/domains.js';
+import { registerOpsRoutes } from './routes/ops.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { createMetricsHub, registerMetricsRoutes } from './routes/metrics.js';
 import { registerProjectRoutes } from './routes/projects.js';
 import { registerWebhookRoutes } from './routes/webhook.js';
 import { createServer, type AppInstance } from './server.js';
 import { AuthService } from './services/auth.js';
+import { BackupService } from './services/backup.js';
+import { DoctorService } from './services/doctor.js';
+import { NotificationService } from './services/notifications.js';
+import { RetentionService } from './services/retention.js';
 import { CaddyService } from './services/caddy.js';
 import { DeploymentService } from './services/deployments.js';
 import { DockerService } from './services/docker.js';
@@ -45,6 +51,9 @@ export interface BuildAppOptions {
   deploymentService?: DeploymentService;
   /** Injected in tests: a stub Caddy controller (no admin API needed). */
   caddyService?: CaddyService;
+  /** Injected in tests: stubs for the Phase 6 services. */
+  notificationService?: NotificationService;
+  backupService?: BackupService;
 }
 
 /**
@@ -157,6 +166,16 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   const logHub = new LogHub();
   const caddy = options.caddyService ?? new CaddyService({ db, config, logger });
 
+  // Notifications exist before the pipeline so a failed deploy can report into
+  // the feed while it is happening.
+  const notifications =
+    options.notificationService ?? new NotificationService({ db, config, logger });
+  const backups = options.backupService ?? new BackupService({ db, config, logger });
+  const retention = new RetentionService({ db, config, logger });
+  const doctor = new DoctorService({ db, config, logger, caddy, docker });
+  // Re-entering the password for a download is cheap to brute force otherwise.
+  const downloadLimiter = new SessionRateLimiter(3);
+
   const deployments =
     options.deploymentService ??
     new DeploymentService({
@@ -166,6 +185,15 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
       client: docker.rawClient?.() ?? new Docker({ host: config.docker.hostUrl.replace(/^tcp:\/\//, '') }),
       onLog: (deploymentId, line) => logHub.publish(deploymentId, line),
       caddy,
+      onEvent: (event) => {
+        void notifications.notify({
+          event: event.type,
+          severity: 'error',
+          title: `Deployment failed: ${event.projectName}`,
+          body: event.detail,
+          dedupeKey: `deploy.failed:${event.deploymentId}`,
+        });
+      },
     });
 
   const sampler = new MetricsSampler({
@@ -230,10 +258,20 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     actions: deployActions,
   });
   registerDomainRoutes(app, { db, config, caddy, logger });
+  registerOpsRoutes(app, {
+    db,
+    config,
+    logger,
+    backups,
+    notifications,
+    doctor,
+    downloadLimiter,
+  });
   registerWebhookRoutes(app, { db, config, logger, deployments, ipLimiter: webhookLimiter });
   registerErrorHandler(app, logger);
 
   let sessionPurgeTimer: NodeJS.Timeout | null = null;
+  let healthTimer: NodeJS.Timeout | null = null;
 
   app.addHook('onReady', async () => {
     if (options.startSampler === false) return;
@@ -271,12 +309,69 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     // Re-apply the desired Caddy routes: API-only routes do not survive a Caddy
     // reload, so this runs on every boot and every CADDY_SYNC_INTERVAL_MS.
     caddy.start();
+
+    retention.start();
+
+    // Scheduled backups, with a notification when one fails.
+    backups.scheduleNotify((error: unknown) => {
+      void notifications.notify({
+        event: 'backup.failed',
+        severity: 'error',
+        title: 'Scheduled backup failed',
+        body: error instanceof Error ? error.message : 'unknown error',
+      });
+    });
+
+    // Cheap watcher (every 5 minutes) for the two things that go wrong slowly:
+    // the disk filling up and Caddy drifting or dying.
+    healthTimer = setInterval(() => {
+      void (async () => {
+        try {
+          const [fs] = await si.fsSize();
+          const used = fs?.use ?? 0;
+          if (used >= config.notify.diskThresholdPct) {
+            await notifications.notify({
+              event: 'disk.high',
+              severity: 'warning',
+              title: `Disk ${used.toFixed(0)}% full`,
+              body: `${fs?.mount ?? '/'} is above the ${config.notify.diskThresholdPct}% threshold.`,
+              dedupeKey: 'disk.high',
+            });
+          }
+
+          const status = await caddy.status();
+          if (!status.reachable) {
+            await notifications.notify({
+              event: 'caddy.unreachable',
+              severity: 'error',
+              title: 'Caddy is not reachable',
+              body: status.error ?? 'The admin API did not answer.',
+              dedupeKey: 'caddy.unreachable',
+            });
+          } else if (status.drift) {
+            await notifications.notify({
+              event: 'caddy.drift',
+              severity: 'warning',
+              title: 'Caddy config drifted',
+              body: 'Routes were re-applied from SQLite.',
+              dedupeKey: 'caddy.drift',
+            });
+          }
+        } catch (error) {
+          logger.warn({ err: error }, 'health watcher failed');
+        }
+      })();
+    }, 5 * 60_000);
+    healthTimer.unref?.();
   });
 
   app.addHook('onClose', async () => {
     sampler.stop();
     statsPoller.stop();
     caddy.stop();
+    retention.stop();
+    backups.stop();
+    if (healthTimer) clearInterval(healthTimer);
     if (sessionPurgeTimer) clearInterval(sessionPurgeTimer);
     hub.clear();
   });

@@ -82,6 +82,11 @@ export function setCsrfToken(token: string | null): void {
   csrfToken = token;
 }
 
+/** Read-only access for the few callers that need raw fetch (file downloads). */
+export function getCsrfToken(): string | null {
+  return csrfToken;
+}
+
 /**
  * Called on any 401 from a non-login endpoint: the session is gone (logout,
  * expiry, or revoked elsewhere), so the shell must return to /login.

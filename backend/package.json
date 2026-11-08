@@ -15,7 +15,12 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "migrate": "tsx src/db/migrate-cli.ts",
     "setup:admin": "tsx src/scripts/setup-admin.ts",
-    "reset:admin": "tsx src/scripts/reset-admin.ts"
+    "reset:admin": "tsx src/scripts/reset-admin.ts",
+    "backup:create": "tsx src/scripts/ops.ts backup:create",
+    "backup:list": "tsx src/scripts/ops.ts backup:list",
+    "backup:verify": "tsx src/scripts/ops.ts backup:verify",
+    "backup:restore": "tsx src/scripts/ops.ts backup:restore",
+    "doctor": "tsx src/scripts/ops.ts doctor"
   },
   "dependencies": {
     "@fastify/cookie": "11.1.5",

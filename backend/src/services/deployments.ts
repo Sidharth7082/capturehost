@@ -60,6 +60,8 @@ export interface DeploymentServiceDeps {
   onLog?: (deploymentId: number, line: string) => void;
   /** Optional: when present, domains follow the blue/green swap. */
   caddy?: DomainRouter;
+  /** Optional: fed into the notification feed (deploy failures today). */
+  onEvent?: (event: { type: 'deploy.failed'; projectName: string; deploymentId: number; detail: string }) => void;
 }
 
 interface QueueEntry {
@@ -84,6 +86,7 @@ export class DeploymentService {
   private aborters = new Map<number, () => void>();
   private onLog?: (deploymentId: number, line: string) => void;
   private readonly caddy?: DomainRouter;
+  private readonly onEvent?: DeploymentServiceDeps['onEvent'];
 
   constructor(deps: DeploymentServiceDeps) {
     this.db = deps.db;
@@ -92,6 +95,7 @@ export class DeploymentService {
     this.client = deps.client;
     this.onLog = deps.onLog;
     this.caddy = deps.caddy;
+    this.onEvent = deps.onEvent;
   }
 
   isBusy(): boolean {
@@ -242,6 +246,13 @@ export class DeploymentService {
       }
       const message = error instanceof Error ? error.message : 'Deployment failed';
       this.finish(entry.deploymentId, 'failed', networkHint(message));
+
+      this.onEvent?.({
+        type: 'deploy.failed',
+        projectName: project.name,
+        deploymentId: entry.deploymentId,
+        detail: networkHint(message),
+      });
       await this.cleanupNewContainer(entry.deploymentId);
       setProjectRuntime(this.db, project.id, { status: 'failed' }, Date.now());
       writeAudit(this.db, {

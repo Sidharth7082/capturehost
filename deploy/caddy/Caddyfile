@@ -73,6 +73,12 @@ http://capturehost.localhost:8090 {
 			file_server
 		}
 	}
+}
 
+# Anything else arriving on the dashboard port is a wrong host, and must be a
+# 404 — an unmatched site on a listener otherwise answers an empty 200, which
+# looks like a working endpoint to a scanner.
+http://:8090 {
+	bind 127.0.0.1
 	respond 404
 }

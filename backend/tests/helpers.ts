@@ -90,6 +90,28 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       healthCheckTimeoutMs: 30_000,
     },
     webhook: { maxBodyBytes: 1_048_576 },
+    backups: {
+      dir: join(tmpdir(), 'capturehost-test-backups'),
+      key: Buffer.alloc(32, 9),
+      scheduleHours: 24,
+      keepDaily: 7,
+      keepWeekly: 4,
+      maxAgeHours: 36,
+    },
+    notify: {
+      webhookUrl: null,
+      cooldownMs: 30 * 60_000,
+      diskThresholdPct: 90,
+      timeoutMs: 2000,
+    },
+    retention: {
+      intervalMs: 3_600_000,
+      auditDays: 90,
+      deployLogDays: 30,
+      deliveriesDays: 14,
+      attemptsDays: 7,
+      notificationsDays: 30,
+    },
     caddy: {
       mode: 'local',
       adminUrl: 'http://127.0.0.1:2019',

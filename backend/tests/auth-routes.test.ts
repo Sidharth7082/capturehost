@@ -61,6 +61,16 @@ const PROTECTED_ROUTES: ReadonlyArray<[string, string]> = [
   ['POST', '/api/domains/1/check'],
   ['GET', '/api/projects/1/domains'],
   ['GET', '/api/caddy/status'],
+  // Phase 6
+  ['GET', '/api/backups'],
+  ['POST', '/api/backups'],
+  ['DELETE', '/api/backups/1'],
+  ['POST', '/api/backups/1/download'],
+  ['GET', '/api/notifications'],
+  ['POST', '/api/notifications/read'],
+  ['GET', '/api/notifications/channel'],
+  ['POST', '/api/notifications/test'],
+  ['GET', '/api/doctor'],
 ];
 
 describe('authentication gate', () => {

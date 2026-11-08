@@ -1,0 +1,48 @@
+[Unit]
+Description=CaptureHost dashboard (backend + deploy pipeline)
+Documentation=file:///opt/capturehost/README.md
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Dedicated, unprivileged system user. Deliberately NOT in the docker group:
+# the only way to Docker is the socket proxy on 127.0.0.1:2375.
+User=capturehost
+Group=capturehost
+WorkingDirectory=/opt/capturehost/backend
+EnvironmentFile=/etc/capturehost/capturehost.env
+ExecStart=/usr/bin/node /opt/capturehost/backend/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+# ---- sandboxing -----------------------------------------------------------
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+# The only writable path: SQLite, cloned repos, build contexts and backups.
+ReadWritePaths=/var/lib/capturehost
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+# Network: TCP only, no raw sockets, no AF_NETLINK tricks.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressAllow=localhost
+IPAddressDeny=any
+# A laptop-sized ceiling; raise if you deploy large builds.
+MemoryMax=2G
+TasksMax=4096
+
+# Logs go to the journal: journalctl -u capturehost -f
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

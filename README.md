@@ -4,8 +4,11 @@ Self-hosted hosting dashboard for a single Arch Linux machine: live system
 metrics, Docker control, GitHub deployments and subdomains with automatic
 HTTPS — one web UI, no cloud account.
 
-**Status: Phase 3 (Docker management) complete.** Later phases are listed in
-[PROGRESS.md](./PROGRESS.md), which is the authoritative project state.
+**Status: all six phases complete** (monitoring, auth, Docker, deployments,
+domains/Caddy, backups + hardening). [PROGRESS.md](./PROGRESS.md) is the
+authoritative project state; [deploy/README.md](./deploy/README.md) is the
+production setup and [deploy/DESIGN-NOTE.md](./deploy/DESIGN-NOTE.md) explains
+why the backend runs as a systemd service rather than in a container.
 
 ## Stack
 
@@ -15,7 +18,8 @@ HTTPS — one web UI, no cloud account.
 | Data | SQLite (`better-sqlite3`, WAL) with numbered migrations |
 | Frontend | React 19, Vite, TypeScript, plain CSS (dark theme) |
 | Metrics | `systeminformation` + `nvidia-smi` (GPU, optional) |
-| Proxy (later) | Caddy, driven through its admin API |
+| Proxy | Caddy, driven through its admin API (routes tagged `capturehost-<id>`) |
+| Ops | encrypted backups, notification feed, retention jobs, security doctor |
 
 ## Requirements (Arch Linux)
 
@@ -278,3 +282,79 @@ capturehost/
   docker-compose.dev.yml   socket proxy + capturehost-apps network
   PROGRESS.md        phase state, decisions, how to resume
 ```
+
+## Backups and restore
+
+```bash
+cd ~/capturehost/backend
+npm run backup:create              # SQLite online snapshot → gzip → AES-256-GCM
+npm run backup:list                # what exists, newest first
+npm run backup:verify <file>       # decrypts and runs PRAGMA integrity_check
+npm run backup:restore <file>      # refuses while the backend is listening
+```
+
+Backups use `BACKUP_ENCRYPTION_KEY`, which is **deliberately a different key**
+from `APP_ENCRYPTION_KEY`, so leaking one does not open the other. They never
+contain `.env`: store the key somewhere off this machine or the backup cannot be
+restored. Restore keeps `capturehost.db.before-restore-<ts>` beside the database
+and re-runs migrations. Retention keeps `BACKUP_KEEP_DAILY` daily and
+`BACKUP_KEEP_WEEKLY` weekly files, deleting only `capturehost-*.db.chbk`.
+
+The UI does the same from **Backups**: create, list, remove, and download (which
+asks for the password again, is rate limited to 3/min and is audited).
+
+## Notifications, retention and the doctor
+
+- **Notifications** (bell page): deploy failed, scheduled backup failed, disk
+  above `NOTIFY_DISK_THRESHOLD_PCT`, Caddy unreachable or drifted. Events dedupe
+  by key with a `NOTIFY_COOLDOWN_MINUTES` window, so a restart loop pages once.
+- **Outbound channel**: one `NOTIFY_WEBHOOK_URL` (ntfy, Discord, Telegram-style).
+  https only, hostname resolved and private/loopback/link-local answers refused,
+  redirects not followed, short timeout, URL path (the usual secret) never shown.
+- **Retention** runs hourly: audit log, build logs, webhook delivery ids, login
+  attempts, read notifications, expired sessions. There is no global
+  `docker prune` anywhere — images are pruned per project (keep N) and on delete.
+- **`npm run doctor`** (or **Security check**): admin, 2FA, cookie flags, proxy
+  trust, listeners, `docker.sock` access, proxy flags, Caddy drift, keys, backup
+  age, disk, `.env` mode, git tracking. Read-only, and it never prints a secret.
+
+## Production (option A)
+
+The backend runs as a dedicated `capturehost` system user that is **not** in the
+`docker` group, with `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`,
+`IPAddressAllow=localhost` and a single writable path. The proxy alone keeps a
+read-only socket mount. Full sudo steps: [deploy/README.md](./deploy/README.md).
+
+```bash
+sudo install -m 644 ~/capturehost/deploy/systemd/capturehost.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now capturehost
+```
+
+## Threat model — what this does NOT protect against
+
+- **Code you deploy.** A Dockerfile is arbitrary code run on this machine at
+  build time; the container policy limits what it reaches, not what it does.
+- **Docker itself.** Anyone in the `docker` group is root-equivalent. The backend
+  avoids the socket, but the proxy still allows create/start/remove, so a
+  compromised backend controls containers.
+- **A compromised host user.** Secrets are in `.env` (mode 600, checked by the
+  doctor). Read access to it is equivalent to the app's keys.
+- **Network attackers** are outside the model only because every listener is on
+  loopback. Bind anything to `0.0.0.0` and that assumption disappears.
+- **Not multi-tenant**: one admin, one machine, no per-user isolation.
+- Backups survive a corrupt database, not a host compromised while the backup key
+  sits on it.
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `Caddy is not reachable` | `systemctl status caddy`; admin API must be on `127.0.0.1:2019` |
+| Deploy: `network … not found` | `docker compose up -d` (creates `capturehost-apps`) |
+| Deploy: `Dockerfile missing` | path is relative to the repo root and must exist on that branch |
+| Domain 404 | project has no live container, or the domain is disabled |
+| Domain 502 | the container died after the swap — check Containers → logs |
+| `Too many attempts` on login | lockout is per IP **and** per username |
+| Everything looks like 127.0.0.1 | behind Caddy: `TRUST_PROXY=true`, keep `TRUST_PROXY_ADDRESSES` loopback |
+| Doctor: `.env` mode 644 | `chmod 600 backend/.env` |
+| Doctor: 2FA off | Settings → Security → Enable 2FA |
