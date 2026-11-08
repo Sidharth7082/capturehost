@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 10 — production install doc + unit fix)
+Last updated: 2026-11-08 (session 13 — state file corrected, dev login unblocked)
 
 ---
 
@@ -13,8 +13,8 @@ Last updated: 2026-11-08 (session 10 — production install doc + unit fix)
 | Item | Value |
 |---|---|
 | Current phase | **Phase 6 — backups, alerts, production: DONE**. All six phases built. |
-| Verified state | 229 backend tests pass, `tsc` clean both packages, `npm audit` 0 vulns, real deploy of `Sidharth7082/capturehost-test-app` live on 127.0.0.1:8101, screenshots at 1440 and 390 |
-| Last commit | `feat(phase-4): github deployments, webhooks and rollback` |
+| Verified state | 338 backend tests pass (18 files), `tsc` clean both packages, `npm audit` 0 vulns, real deploy of `Sidharth7082/capturehost-test-app` live on 127.0.0.1:8101, screenshots at 1440 and 390 — full suite re-run in session 13 |
+| Last commit | `b81aca0 feat(cli): change:password to rotate the admin password from a shell` |
 | Next action | none — the build is complete; production runner is option A (systemd, `deploy/systemd/`) |
 
 ---
@@ -593,6 +593,24 @@ way a container is created is the deploy pipeline, which owns the safety policy.
 - Verified on a scratch database: create → change → new password matches, old
   one does not, a session row is revoked, a wrong current password exits 1 with
   no change, a short password exits 1, and the audit log records both outcomes.
+
+### 2026-11-08 — session 13 (state file + dev login)
+- Header and §1 had been stale since session 10: "229 tests", "session 10",
+  and a "Last commit" pointing at the phase-4 commit. Corrected to the measured
+  state — `npx vitest run` 338 tests / 18 files green, `tsc --noEmit` exit 0 in
+  both packages, HEAD `b81aca0`.
+- Reported "Invalid username or password": all six failures in `audit_log` say
+  `unknown username` (`capture` ×5, `capture-host` ×1), never "wrong password" —
+  the account is **`sid`**. `getAdminByUsername` compares with `=`, the `admin.username`
+  column has no `COLLATE NOCASE`, so the name is case- and space-sensitive: `Sid`
+  fails as surely as `capture-host`. The password was never actually tested.
+- Those five misses had also tripped the per-IP bucket (`login_attempts`,
+  `127.0.0.1`, locked to 20:28), so the correct credentials would have been
+  refused as locked anyway. Rows cleared for `127.0.0.1` / `capture` /
+  `capture-host` in `backend/data/capturehost.db`; that table is the live lockout
+  state, so no restart was needed.
+- `curl 127.0.0.1:8787/api/auth/setup-status` → `{"setupComplete":true}`, same
+  through the vite proxy on :5173.
 
 ## 10. How to resume (for the next agent)
 
