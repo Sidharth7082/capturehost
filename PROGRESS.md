@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 17 — one-command dev launcher)
+Last updated: 2026-11-08 (session 18 — unstyled toolbars fixed, shared CSS made global)
 
 ---
 
@@ -439,6 +439,26 @@ way a container is created is the deploy pipeline, which owns the safety policy.
     leave Caddy holding `:2019` with nothing behind it. The offending process is
     named from `ss` and left running.
 
+### Session 18 (toolbar + name/meta cell were never in the bundle)
+60. **`styles/lists.css` is now global on purpose.** The Projects toolbar and the
+    two-line name/meta cell were styled in `pages/Placeholder.css`, which only
+    `PagePlaceholder` imports — and `PagePlaceholder` is only imported by
+    `Databases.tsx`, which is not routed. Those rules therefore fell out of the
+    module graph and never reached the bundle: the built CSS contained only the
+    `.containers-page …` overrides. Symptom: the toolbar rendered as raw HTML (icon
+    above an unstyled input, no gap before the button) and rows read
+    `hello-capturehostSidharth7082/capture-host-test-app · main` on one line.
+    Affected every list page, not just Projects: Containers, Domains, Backups,
+    Notifications, Security, LogsDrawer, DeploymentLog, ProjectDetail.
+61. **Page-specific CSS must be imported by the page that uses it; shared furniture
+    belongs to a stylesheet `main.tsx` imports.** A stylesheet reachable only
+    through a page nobody routes is dead code that *looks* alive, and the dev server
+    hides it no better than the build does (same module graph) — this was not a
+    build-only bug.
+62. **A long name truncates instead of stretching the row**: `__name` is a single
+    line with an ellipsis capped at 40ch, `__meta` at 46ch (wide enough for
+    `owner/repo · branch`, narrow enough to keep the table from scrolling sideways).
+
 ## 8. Known gaps / deliberate deferrals
 
 - **2FA is off on the admin by the owner's decision** (2026-11-08). The dashboard
@@ -828,6 +848,39 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   non-goals, plus `capturehost.py` and `tests/` in the Layout block and a one-line
   pointer in the intro. The alias in the README and in `~/.bashrc` are the same
   `python3` form.
+
+### 2026-11-08 — session 18 (Projects toolbar and row cell were unstyled)
+- Reported from the screenshot at `capturehost.localhost:8090/projects`: the search
+  icon sat above an unstyled input that touched "New Project", and the row read
+  `hello-capturehostSidharth7082/capturehost-test-app · main` on one line.
+- **Root cause, not a build problem:** `.page-toolbar*` and `.cell-primary*` were
+  defined in `pages/Placeholder.css`, imported only by `PagePlaceholder`, which is
+  imported only by the unrouted `Databases.tsx`. The rules never entered the module
+  graph, so neither the dev server nor the build had them — the built CSS contained
+  only the `.containers-page …` overrides (`grep` on
+  `dist/assets/index-DlTbheZl.css` returned 1 hit each, both overrides).
+- Fix: `styles/lists.css` holds the toolbar and the name/meta cell, imported once in
+  `main.tsx` after `layout.css`; `Placeholder.css` keeps only `.page-placeholder*`
+  and its three unused `.settings-*` rules are gone.
+- Blast radius (all fixed by the one move): Containers, Domains, Backups,
+  Notifications, Security, `containers/LogsDrawer`, `projects/DeploymentLog`,
+  `ProjectDetail` and `Projects` all use `page-toolbar` and/or `cell-primary`.
+- Long values: `__name` truncates at 40ch, `__meta` at 46ch — the meta cap was 34ch,
+  which cut `Sidharth7082/capturehost-test-app · main` in half.
+- Verified without the owner's password, in a real browser at 1440×900 and
+  390×844, using a temporary `__LayoutFixture` route (real `Card`/`DataTable`/
+  `Button`/`Icon`/`StatusPill` and the same class names, one short and one
+  48-character project name, deleted before the commit — `grep __LayoutFixture` is
+  empty): icon inside the search box, search 320px wide with a 607px gap to the
+  button at 1440 (wraps below it at 390), `.cell-primary` computed `display:flex;
+  flex-direction:column`, name above meta (y 125→145 over 146→163), long name and
+  meta both `scrollWidth > clientWidth` (ellipsis), page
+  `scrollWidth - clientWidth === 0` at both widths.
+- Verified the shipped artifact: `npm run build` → `dist/assets/index-Cnq-Cstx.css`
+  contains `.page-toolbar{…display:flex…}` and `.cell-primary{flex-direction:column…
+  display:flex}`, and `dist/index.html` references that hash. Caddy serves `dist`
+  from disk, so no restart is needed — the CSS filename changes with the build.
+- Gates: 340 backend tests, `tsc` clean both packages, build 104 modules.
 
 ## 10. How to resume (for the next agent)
 
