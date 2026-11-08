@@ -95,7 +95,7 @@ python3 capturehost.py stop       # only what this script started
 Optional alias:
 
 ```bash
-alias capturehost='python ~/capturehost/capturehost.py'
+alias capturehost='python3 ~/capturehost/capturehost.py'
 ```
 
 What it guarantees, because a launcher that gets these wrong is worse than no

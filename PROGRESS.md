@@ -54,6 +54,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done + verified by runni
 | GitHub origin | `https://github.com/Sidharth7082/capturehost` — **public**, default branch `master`, remote `origin` |
 | git identity | Sidharth7082 / sidharthkaushal558@gmail.com |
 | Local dev admin | username `capture` (renamed from `sid` by `reset:admin` on 2026-11-08), **2FA off** |
+| Shell alias | `capturehost` → `python3 ~/capturehost/capturehost.py`, in `~/.bashrc` |
 | Pre-existing containers | `beautiful_heisenberg` (hello-world, exited) — **never touch** |
 
 ---
