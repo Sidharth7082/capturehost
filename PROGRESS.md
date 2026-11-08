@@ -582,6 +582,18 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   a notification. Exit codes: 0 match, 1 no match, 2 no database/admin.
 - README: "Forgot the password?" section with the production `--db` form.
 
+### 2026-11-08 — session 12 (password rotation from the shell)
+- `npm run change:password` — verifies the current password, applies the same
+  strength check as the web form, rewrites only `password_hash`, revokes every
+  session and writes an audit row. Keeps the account, its TOTP secret and its
+  recovery codes (unlike `reset:admin`).
+- `src/utils/prompt.ts` holds the hidden/visible prompt helpers that
+  `setup-admin`, `check-password` and `change-password` now share — the same
+  ~45 lines had been copied into two files.
+- Verified on a scratch database: create → change → new password matches, old
+  one does not, a session row is revoked, a wrong current password exits 1 with
+  no change, a short password exits 1, and the audit log records both outcomes.
+
 ## 10. How to resume (for the next agent)
 
 1. Read this file completely.

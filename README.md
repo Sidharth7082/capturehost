@@ -373,10 +373,22 @@ printf 'candidate\n' | npm run check:password           # non-interactive
 ```
 
 Exit code 0 means it matches, 1 means it does not, 2 means no database or no
-admin. The password is not echoed and never leaves the machine. If it does not
-match and you no longer have it, `npm run reset:admin` deletes the account (and
-its sessions) so `npm run setup:admin` can create it again — note that resetting
-also discards the TOTP secret, so 2FA has to be re-enrolled.
+admin. The password is not echoed and never leaves the machine.
+
+To rotate it, use **Settings → Security → Change password** in the dashboard, or
+from a shell when the dashboard is unreachable:
+
+```bash
+cd backend
+npm run change:password                                  # asks for current, then new (both hidden)
+npm run change:password -- --db /var/lib/capturehost/capturehost.db
+```
+
+It verifies the current password, applies the same strength rules as the web form,
+rewrites only the hash, revokes every session (you sign in again) and writes an
+audit row. **2FA and the recovery codes are untouched** — unlike `reset:admin`,
+which deletes the account, its sessions and its TOTP secret, and then needs
+`setup:admin` to start over.
 
 ## Troubleshooting
 

@@ -1,5 +1,5 @@
 import { loadEnvFile } from '../utils/env.js';
-import { createInterface } from 'node:readline/promises';
+import { promptHidden, promptVisible } from '../utils/prompt.js';
 import { loadConfig } from '../config.js';
 import { checkPasswordStrength, hashPassword } from '../crypto/password.js';
 import { createAdmin, getAdmin } from '../db/auth.repo.js';
@@ -12,60 +12,6 @@ import { migrate } from '../db/migrate.js';
  * there is no public signup, and creating the first account requires shell
  * access to the machine. If an admin already exists it refuses.
  */
-
-/** Reads a line without echoing it. Terminal raw mode, so no deps needed. */
-function promptHidden(question: string): Promise<string> {
-  return new Promise((resolve) => {
-    const { stdin, stdout } = process;
-    stdout.write(question);
-
-    const wasRaw = stdin.isRaw;
-    stdin.setRawMode?.(true);
-    stdin.resume();
-    stdin.setEncoding('utf8');
-
-    let value = '';
-    const onData = (input: string): void => {
-      const chars = String(input);
-
-      if (chars === '\n' || chars === '\r' || chars === '\u0004') {
-        stdin.setRawMode?.(wasRaw ?? false);
-        stdin.pause();
-        stdin.removeListener('data', onData);
-        stdout.write('\n');
-        resolve(value);
-        return;
-      }
-
-      if (chars === '\u0003') {
-        // Ctrl-C: leave the terminal usable.
-        stdin.setRawMode?.(wasRaw ?? false);
-        stdout.write('\n');
-        process.exit(130);
-      }
-
-      if (chars === '\u007f' || chars === '\b') {
-        if (value.length > 0) {
-          value = value.slice(0, -1);
-          stdout.write('\b \b');
-        }
-        return;
-      }
-
-      value += chars;
-      stdout.write('*');
-    };
-
-    stdin.on('data', onData);
-    // Piped input (CI, `yes |`, a heredoc) ends the stream instead of sending
-    // a newline: treat EOF as "done typing".
-    stdin.once('end', () => {
-      stdin.removeListener('data', onData);
-      stdout.write('\n');
-      resolve(value);
-    });
-  });
-}
 
 async function main(): Promise<void> {
   loadEnvFile();
@@ -97,9 +43,7 @@ async function main(): Promise<void> {
     confirmation = password;
     console.log(`(non-interactive) creating admin "${username}"`);
   } else {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    username = (await rl.question('Admin username: ')).trim();
-    rl.close();
+    username = (await promptVisible('Admin username: ')).trim();
 
     password = await promptHidden('Password (min 12 chars, hidden): ');
     confirmation = await promptHidden('Confirm password: ');
