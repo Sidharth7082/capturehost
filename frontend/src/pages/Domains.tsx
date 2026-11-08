@@ -16,6 +16,7 @@ import { Card } from '../components/Card';
 import { DataTable, type Column } from '../components/DataTable';
 import { Dropdown } from '../components/Dropdown';
 import { EmptyState } from '../components/EmptyState';
+import domainsEmptiness from '../assets/empty/domains.webp';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { Skeleton } from '../components/Skeleton';
@@ -217,19 +218,22 @@ export function Domains(): JSX.Element {
             caption="Project domains"
             empty={
               <EmptyState
-                icon="domains"
+                illustration={{ src: domainsEmptiness }}
                 title="No domains attached"
-                description={
-                  caddy?.mode === 'local'
-                    ? 'Attach something like hello.capturehost.localhost — it resolves to this machine with no DNS setup.'
-                    : 'Attach a hostname under your allowed base domain and Caddy will route it to the project.'
-                }
+                description="Give a deployed project its own hostname."
                 action={
-                  projects.length > 0 ? (
-                    <Button variant="primary" onClick={() => setAddOpen(true)}>
-                      Add domain
-                    </Button>
-                  ) : undefined
+                  <Button
+                    variant="primary"
+                    onClick={() => setAddOpen(true)}
+                    disabled={projects.length === 0}
+                    title={
+                      projects.length === 0
+                        ? 'Add a domain to a project — deploy one first.'
+                        : undefined
+                    }
+                  >
+                    Add domain
+                  </Button>
                 }
               />
             }

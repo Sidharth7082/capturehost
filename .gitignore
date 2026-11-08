@@ -21,6 +21,9 @@ backend/data/*.db-wal
 backend/data/*.db-shm
 backend/data/backups/
 
+# brand source art (JPEG masters; the build uses WebP in src/assets)
+brand-incoming/
+
 # runtime artifacts
 deployments/
 logs/

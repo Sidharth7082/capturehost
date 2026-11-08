@@ -7,6 +7,7 @@ import { Card } from '../components/Card';
 import { DataTable, type Column } from '../components/DataTable';
 import { Dropdown } from '../components/Dropdown';
 import { EmptyState } from '../components/EmptyState';
+import projectsEmptiness from '../assets/empty/projects.webp';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { Skeleton } from '../components/Skeleton';
@@ -207,22 +208,25 @@ export function Projects(): JSX.Element {
             getRowKey={(project) => project.id}
             caption="Deployed projects"
             empty={
-              <EmptyState
-                icon="projects"
-                title={query ? 'No project matches that search' : 'No projects yet'}
-                description={
-                  query
-                    ? 'Try a different name or repository.'
-                    : 'Connect a GitHub repository and CaptureHost will clone, build and run it in its own locked-down container.'
-                }
-                action={
-                  query ? undefined : (
+              query ? (
+                <EmptyState
+                  icon="search"
+                  title="No matches"
+                  description="Try a different name or repository."
+                  action={<Button onClick={() => setQuery('')}>Clear search</Button>}
+                />
+              ) : (
+                <EmptyState
+                  illustration={{ src: projectsEmptiness }}
+                  title="No projects yet"
+                  description="Connect a GitHub repository to deploy your first site."
+                  action={
                     <Button variant="primary" onClick={() => setNewOpen(true)}>
-                      New Project
+                      New project
                     </Button>
-                  )
-                }
-              />
+                  }
+                />
+              )
             }
           />
         </Card>

@@ -10,6 +10,7 @@ import {
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { EmptyState } from '../components/EmptyState';
+import notificationsEmptiness from '../assets/empty/notifications.webp';
 import { Icon } from '../components/Icon';
 import { Skeleton } from '../components/Skeleton';
 import { StatusPill } from '../components/StatusPill';
@@ -113,9 +114,9 @@ export function Notifications(): JSX.Element {
       ) : items.length === 0 ? (
         <Card>
           <EmptyState
-            icon="bell"
-            title="Nothing to report"
-            description="Failed deployments, disk pressure, Caddy trouble and backup failures land here."
+            illustration={{ src: notificationsEmptiness }}
+            title="You're all caught up"
+            description="Alerts about deployments, disk space and Caddy show up here."
           />
         </Card>
       ) : (

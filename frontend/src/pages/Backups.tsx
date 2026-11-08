@@ -12,6 +12,7 @@ import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { DataTable, type Column } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
+import backupsEmptiness from '../assets/empty/backups.webp';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { Skeleton } from '../components/Skeleton';
@@ -176,9 +177,9 @@ export function Backups(): JSX.Element {
             caption="Encrypted database backups"
             empty={
               <EmptyState
-                icon="databases"
+                illustration={{ src: backupsEmptiness }}
                 title="No backups yet"
-                description="Backups are encrypted with BACKUP_ENCRYPTION_KEY and stored outside the database. Keep a copy of that key somewhere else."
+                description="Create an encrypted copy of the dashboard database."
                 action={
                   data.enabled ? (
                     <Button variant="primary" onClick={() => void createBackup().then(() => void load())}>

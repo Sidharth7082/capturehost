@@ -2,6 +2,7 @@ import { type JSX } from 'react';
 import { Link } from 'react-router-dom';
 import { Card } from '../components/Card';
 import { EmptyState } from '../components/EmptyState';
+import notFoundEmptiness from '../assets/empty/not-found.webp';
 
 /**
  * Catch-all for URLs that match no route. Without it the router renders the
@@ -12,9 +13,9 @@ export function NotFound(): JSX.Element {
   return (
     <Card>
       <EmptyState
-        icon="search"
-        title="This page does not exist"
-        description="The address does not match anything in CaptureHost. It may have been removed, or the link may be mistyped."
+        illustration={{ src: notFoundEmptiness }}
+        title="Page not found"
+        description="This page doesn't exist or has moved."
         action={
           <Link className="button button--primary" to="/">
             Back to dashboard

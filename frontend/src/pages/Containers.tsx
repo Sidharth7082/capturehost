@@ -1,4 +1,5 @@
 import { useMemo, useState, type JSX } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ApiError,
   containerAction,
@@ -11,6 +12,7 @@ import { Card } from '../components/Card';
 import { DataTable, type Column } from '../components/DataTable';
 import { Dropdown } from '../components/Dropdown';
 import { EmptyState } from '../components/EmptyState';
+import containersEmptiness from '../assets/empty/containers.webp';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { Skeleton } from '../components/Skeleton';
@@ -363,15 +365,30 @@ export function Containers(): JSX.Element {
             empty={
               containers.length === 0 ? (
                 <EmptyState
-                  icon="containers"
-                  title="No containers yet"
-                  description="Start the socket proxy, or deploy a project — containers will appear here with live CPU and memory."
+                  illustration={{ src: containersEmptiness }}
+                  title="No containers running"
+                  description="Containers appear here after you deploy a project."
+                  action={
+                    <Link className="button button--primary" to="/projects">
+                      Go to Projects
+                    </Link>
+                  }
                 />
               ) : (
                 <EmptyState
                   icon="search"
-                  title="No container matches"
+                  title="No matches"
                   description="Try a different search or status filter."
+                  action={
+                    <Button
+                      onClick={() => {
+                        setSearch('');
+                        setStateFilter('all');
+                      }}
+                    >
+                      Clear filters
+                    </Button>
+                  }
                 />
               )
             }

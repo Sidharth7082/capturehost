@@ -25,5 +25,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    // Every empty-state illustration is 1.6-4.7 KB, i.e. under Vite's 4 KB
+    // inline limit, so five of the six would ship as base64 inside the JS bundle:
+    // bigger over the wire, no separate cache entry, no hashed URL. Emit files.
+    assetsInlineLimit: 0,
   },
 });

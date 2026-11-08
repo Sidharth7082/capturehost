@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-09 (session 20 — full icon set: ico, PNG sizes, maskable, manifest)
+Last updated: 2026-11-09 (session 21 — empty-state illustrations wired through EmptyState)
 
 ---
 
@@ -512,6 +512,27 @@ way a container is created is the deploy pipeline, which owns the safety policy.
     a manifest served that way. Fixed with a path matcher +
     `header @manifest Content-Type application/manifest+json` in the dashboard site.
 
+### Session 21 (empty-state illustrations)
+70. **The illustrations are opaque navy cards, and are treated as such.** The six
+    sources arrived as JPEGs (1184×864, no alpha channel), so "transparency" was
+    not something to preserve — the art already carries its own dark background.
+    They are converted to 480×350 WebP (2× of the 240px display size) and rendered
+    inside a 14px rounded box with a hairline inset border, rather than pretending
+    the背景 is transparent.
+71. **`assetsInlineLimit: 0` in `vite.config.ts`.** Five of the six WebP files are
+    under Vite's 4 KB default, so they shipped as base64 inside the JS bundle —
+    bigger over the wire, no separate cache entry, no hashed filename. Forcing file
+    output gives `assets/<name>-<hash>.webp` for all six.
+72. **`EmptyState` takes an optional `illustration` and is the only empty-state
+    component.** With an illustration it drops the small icon bubble; the image is
+    decorative (`alt=""`, `aria-hidden="true"`, `loading="lazy"`) with explicit
+    `width`/`height` attributes, so the box is reserved before decode and screen
+    readers announce only the title and description. Search-with-no-results reuses
+    the same component *without* an illustration: "No matches" plus a clear action.
+73. **Copy is the brief's, and the Domains action reflects reality**: with no
+    projects the `Add domain` button renders disabled with a title hint, because a
+    domain has to point at something.
+
 ## 8. Known gaps / deliberate deferrals
 
 - **2FA is off on the admin by the owner's decision** (2026-11-08). The dashboard
@@ -992,6 +1013,46 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   not as a C. That is the floor for a three-blade mark at 16px, and the two-blade
   alternative was worse.
 - Gates: 340 backend tests, `tsc` clean both packages, build 106 modules.
+
+### 2026-11-09 — session 21 (empty-state illustrations)
+- The art was not where the brief said: no `brand-incoming/empty/`, no PNGs of those
+  names. The six JPEGs were sitting in `frontend/dist/assets/` (a build directory
+  Vite empties on every build). Copied to `brand-incoming/empty/` first, then
+  converted — `brand-incoming/` is now in `.gitignore`, and the build reads only
+  `frontend/src/assets/empty/*.webp`.
+- Conversion (ImageMagick, `-resize 480x -quality 80 -define webp:method=6`):
+
+      404, page not found.jpg              72.9 KB ->  4.6 KB   not-found.webp
+      Containers, empty.jpg                 50.6 KB ->  2.8 KB   containers.webp
+      Projects, empty.jpg                   50.9 KB ->  1.6 KB   projects.webp
+      Domains, empty.jpg                    44.7 KB ->  2.6 KB   domains.webp
+      Backups, empty.jpg                    42.2 KB ->  1.9 KB   backups.webp
+      Notifications, all caught up.jpg      36.2 KB ->  1.7 KB   notifications.webp
+      total                                297.5 KB -> 15.1 KB   (all 480x350)
+
+- Wired: Projects, Containers, Domains, Backups, Notifications, 404 (illustration +
+  the brief's copy) and a no-results state on Projects and Containers ("No matches"
+  + clear action, no illustration).
+- Verified without a password and without touching real data: a temporary
+  `__EmptyFixture` route rendered the real `EmptyState` with the real assets at
+  1440 and 390, then was deleted (`grep __EmptyFixture` is empty). Nothing read or
+  wrote the database; the fixture renders constants only.
+  - six illustrations, all 240×175 CSS from 480×350 attributes at 1440, and 180×131
+    at 390; `scrollWidth - clientWidth = 0` at both widths;
+  - accessibility tree contains **no image nodes at all** (decorative), and the
+    titles come through as text ("No projects yet", "Page not found", "No matches",
+    "No backups yet", "No domains attached");
+  - focus order is DOM order and skips the disabled control: New project →
+    Go to Projects → Back up now → Back to dashboard → Clear filters; the images are
+    not focusable.
+- Served: all six hashed WebP answer 200 `image/webp` through Caddy on :8090; the
+  dashboard HTML still carries **no** CSP, and the backend's CSP keeps
+  `img-src 'self' data:` — nothing was loosened.
+- Known inconsistency to decide on: the Domains illustration is drawn on a **light**
+  background while the other five are navy, so it reads as a white card in the dark
+  UI. Also, the marks sit small inside their 4:3 cards at 240px.
+- Gates: 340 backend tests, `tsc` clean both packages, build 112 modules, `npm audit`
+  0 vulnerabilities.
 
 ## 10. How to resume (for the next agent)
 
