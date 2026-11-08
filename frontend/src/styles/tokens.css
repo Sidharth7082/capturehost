@@ -1,0 +1,89 @@
+/*
+ * Design tokens. Every colour, space and radius in the app comes from here —
+ * change a value once and the whole UI follows.
+ */
+:root {
+  /* ---- surfaces ---- */
+  --bg: #0b0d14;
+  --bg-subtle: #0e1119;
+  --panel: #11141d;
+  --raised: #171b27;
+  --raised-hover: #1c2130;
+  --overlay: rgba(5, 6, 10, 0.72);
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+
+  /* ---- text ---- */
+  --text: #e7e9f0;
+  --text-muted: #8b91a3;
+  --text-faint: #5f6577;
+
+  /* ---- brand ---- */
+  --accent: #6366f1;
+  --accent-hover: #7c7ff5;
+  --accent-soft: rgba(99, 102, 241, 0.14);
+  --accent-contrast: #ffffff;
+
+  /* ---- status ---- */
+  --success: #22c55e;
+  --success-soft: rgba(34, 197, 94, 0.13);
+  --warning: #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.13);
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.13);
+  --info: #38bdf8;
+  --info-soft: rgba(56, 189, 248, 0.13);
+
+  /* ---- chart series ---- */
+  --series-cpu: #6366f1;
+  --series-mem: #38bdf8;
+  --series-disk: #f59e0b;
+  --series-rx: #22c55e;
+  --series-tx: #a78bfa;
+
+  /* ---- spacing scale ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* ---- radii ---- */
+  --radius-card: 12px;
+  --radius-input: 8px;
+  --radius-pill: 999px;
+
+  /* ---- elevation ---- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.5);
+
+  /* ---- motion ---- */
+  --transition: 150ms ease;
+
+  /* ---- type ---- */
+  --font-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+  --text-base: 14px;
+  --text-sm: 12.5px;
+  --text-xs: 11.5px;
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* ---- layout metrics ---- */
+  --sidebar-width: 240px;
+  --sidebar-width-collapsed: 64px;
+  --topbar-height: 64px;
+  --content-max: 1280px;
+
+  /* ---- layering ---- */
+  --z-topbar: 20;
+  --z-drawer: 40;
+  --z-overlay: 50;
+  --z-modal: 60;
+  --z-toast: 70;
+  --z-palette: 80;
+}

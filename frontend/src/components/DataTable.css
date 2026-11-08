@@ -1,0 +1,82 @@
+.data-table {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  /* Tables are the one place a horizontal scroll is allowed — never the page. */
+  -webkit-overflow-scrolling: touch;
+}
+
+.data-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table caption {
+  padding: var(--space-3) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.data-table th {
+  position: sticky;
+  top: 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tbody tr {
+  transition: background var(--transition);
+}
+
+.data-table tbody tr:hover {
+  background: var(--raised);
+}
+
+.data-table tbody tr[data-clickable='true'] {
+  cursor: pointer;
+}
+
+.data-table__cell--right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table__cell--muted {
+  color: var(--text-muted);
+}
+
+.data-table__empty {
+  border-bottom: none;
+}
+
+@media (max-width: 640px) {
+  .data-table__cell--hide-mobile {
+    display: none;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding-inline: var(--space-3);
+  }
+}

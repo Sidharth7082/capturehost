@@ -1,0 +1,64 @@
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: var(--overlay);
+  backdrop-filter: blur(3px);
+  animation: modal-in 150ms ease;
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 480px);
+  max-height: min(88vh, 720px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  background: var(--raised);
+  box-shadow: var(--shadow-lg);
+  animation: modal-pop 150ms ease;
+}
+
+.modal__header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) 0;
+}
+
+.modal__title {
+  flex: 1 1 auto;
+  font-size: 15px;
+  font-weight: var(--weight-semibold);
+}
+
+.modal__body {
+  padding: var(--space-4);
+  overflow-y: auto;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
