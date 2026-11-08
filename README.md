@@ -359,6 +359,25 @@ sudo systemctl daemon-reload && sudo systemctl enable --now capturehost
 - Backups survive a corrupt database, not a host compromised while the backup key
   sits on it.
 
+## Forgot the password?
+
+Passwords are stored as one-way argon2id hashes, so there is nothing to read
+back — only to check. Prefer the offline check over guessing at the login form:
+five wrong attempts lock the IP out for 15 minutes and raise an alert.
+
+```bash
+cd backend
+npm run check:password                                  # dev database
+npm run check:password -- --db /var/lib/capturehost/capturehost.db   # production
+printf 'candidate\n' | npm run check:password           # non-interactive
+```
+
+Exit code 0 means it matches, 1 means it does not, 2 means no database or no
+admin. The password is not echoed and never leaves the machine. If it does not
+match and you no longer have it, `npm run reset:admin` deletes the account (and
+its sessions) so `npm run setup:admin` can create it again — note that resetting
+also discards the TOTP secret, so 2FA has to be re-enrolled.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |

@@ -20,7 +20,8 @@
     "backup:list": "tsx src/scripts/ops.ts backup:list",
     "backup:verify": "tsx src/scripts/ops.ts backup:verify",
     "backup:restore": "tsx src/scripts/ops.ts backup:restore",
-    "doctor": "tsx src/scripts/ops.ts doctor"
+    "doctor": "tsx src/scripts/ops.ts doctor",
+    "check:password": "tsx src/scripts/check-password.ts"
   },
   "dependencies": {
     "@fastify/cookie": "11.1.5",

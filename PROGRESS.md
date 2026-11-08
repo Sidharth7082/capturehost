@@ -575,6 +575,13 @@ way a container is created is the deploy pipeline, which owns the safety policy.
 - Dev rotation of password/2FA deliberately skipped: production has its own
   database at `/var/lib/capturehost`, so account setup happens there.
 
+### 2026-11-08 — session 11 (password check)
+- `npm run check:password` — verifies a password against the stored argon2id hash
+  with the same `verifyPassword()` the login uses, read-only on the database.
+  Avoids the login form, where five attempts lock the IP for 15 minutes and raise
+  a notification. Exit codes: 0 match, 1 no match, 2 no database/admin.
+- README: "Forgot the password?" section with the production `--db` form.
+
 ## 10. How to resume (for the next agent)
 
 1. Read this file completely.
