@@ -823,6 +823,11 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   (decisions 57) and the `Popen`-before-exec window (58).
 - Gates: 340 backend tests, 21 launcher tests, `tsc` clean both packages,
   frontend build 103 modules.
+- Docs: README now carries the launcher as a reference — command table, start order
+  with the probe and timeout per service, the guarantees, the deliberate
+  non-goals, plus `capturehost.py` and `tests/` in the Layout block and a one-line
+  pointer in the intro. The alias in the README and in `~/.bashrc` are the same
+  `python3` form.
 
 ## 10. How to resume (for the next agent)
 

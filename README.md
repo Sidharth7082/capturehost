@@ -21,6 +21,11 @@ authoritative project state; [deploy/README.md](./deploy/README.md) is the
 production setup and [deploy/DESIGN-NOTE.md](./deploy/DESIGN-NOTE.md) explains
 why the backend runs as a systemd service rather than in a container.
 
+Development runs with one command — `python3 capturehost.py` starts the socket
+proxy, Caddy, the API and the Vite dev server in dependency order and stops them
+again on Ctrl-C ([details](#run-everything-with-one-command)); production runs
+under systemd.
+
 ## Stack
 
 | Layer | Choice |
@@ -81,8 +86,9 @@ password, `npm run reset:admin` (also shell-only) wipes the account so
 ## Run everything with one command
 
 Once the one-time setup above is done (`.env` with a key, `npm install`, an admin
-account), the four processes — socket proxy, Caddy, backend, frontend — start in
-dependency order from the repo root:
+account), one script starts the four processes in dependency order — socket proxy →
+Caddy → backend → frontend — each only after the previous one answers a health
+probe. Python 3 standard library only; nothing to install.
 
 ```bash
 python3 capturehost.py            # foreground: prefixed, colour-coded logs, Ctrl-C stops it all
@@ -92,31 +98,69 @@ python3 capturehost.py logs backend -f
 python3 capturehost.py stop       # only what this script started
 ```
 
-Optional alias:
+Optional alias, so it is one word anywhere:
 
 ```bash
 alias capturehost='python3 ~/capturehost/capturehost.py'
 ```
 
-What it guarantees, because a launcher that gets these wrong is worse than no
-launcher:
+### Commands
 
-- **It only stops what it started.** Pids go to `.run/pids.json` and are re-verified
-  (pid, process group, cwd, command line) before any signal, then the whole process
-  group gets SIGTERM, 10 s, SIGKILL — so `npm`'s `tsx`/`vite` children go with it.
-  Containers started by a deployment are never touched; the socket proxy is stopped
-  with `docker compose stop` for this repo's compose file only.
-- **Idempotent.** Starting twice reports "already running" instead of duplicating.
-- **Loud about port conflicts.** If something else holds a port it prints the owner
-  from `ss` and exits non-zero, rolling back what it already started. It never kills
-  a process it did not start.
-- **No sudo, no shell.** Argument lists with explicit cwds; Docker is checked, not
-  started (`sudo systemctl start docker` is your call).
-- `--no-frontend` (backend + Caddy only) and `--prod` (a pointer to the systemd
-  setup — production is *not* this script).
+| command | does |
+|---|---|
+| `capturehost` | start in the foreground; Ctrl-C stops everything it started (exit 130) |
+| `capturehost start -d` | start detached, logs to `.run/logs/`, pids to `.run/pids.json` |
+| `capturehost stop` | stop what the launcher started, in reverse order |
+| `capturehost restart` | stop, then start in the foreground |
+| `capturehost status` | `SERVICE / STATE / PID / PORT / HEALTH`, and `foreign` when a port is held by something it did not start |
+| `capturehost logs <service>` | last 40 lines of `.run/logs/<service>.log` |
+| `capturehost logs <service> -f` | follow it live; Ctrl-C stops following, not the service |
+| `capturehost doctor` | runs `npm run doctor` in `backend/` (the read-only ops report) |
+| `capturehost open` | opens the dashboard URL in a browser |
+
+Flags: `--no-frontend` (proxy + Caddy + backend only) and `--prod`, which does not
+start anything — production runs under systemd (`deploy/README.md`), not this script.
+
+### Start order
+
+| service | how | healthy when | timeout |
+|---|---|---|---|
+| proxy | `docker compose -f docker-compose.dev.yml up -d` | `GET /_ping` on `127.0.0.1:2375` | 45 s |
+| caddy | `~/.local/bin/caddy run --config deploy/caddy/Caddyfile --adapter caddyfile` | `GET /config/` on `127.0.0.1:2019` (with the `Origin` header its API requires) | 25 s |
+| backend | `npm run dev` in `backend/` | `GET /api/health` on `127.0.0.1:8787` | 90 s |
+| frontend | `npm run dev` in `frontend/` | `127.0.0.1:5173` accepts a connection | 90 s |
+
+### What it guarantees
+
+A launcher that gets these wrong is worse than no launcher:
+
+- **It only stops what it started.** Pids, process groups, cwds and a command-line
+  marker go to `.run/pids.json` and are re-verified before any signal — a recycled
+  pid fails the check and is left alone. Stop is SIGTERM to the whole process group,
+  10 s, then SIGKILL, so `npm`'s `tsx` and `vite` children go with their parent.
+- **Container-safe.** The proxy is stopped with `docker compose stop` for this repo's
+  compose file only. Containers created by deployments, and anything else on the
+  machine, are never touched.
+- **Idempotent.** A second start reports `already running (pid …)` per service and
+  starts nothing.
+- **Loud about port conflicts.** Before each start it checks the port; if something
+  else holds it, it prints the owner from `ss`, exits non-zero and rolls back what it
+  had already started. It never kills a process it did not start.
+- **A failed start never leaves half a stack.** Compose failure, a service that exits
+  during startup, or a health timeout all run the same shutdown path.
+- **No privilege, no shell.** Argument lists with explicit cwds, no `sudo`, no
+  `shell=True`. Docker is checked, never started: it tells you to run
+  `sudo systemctl start docker` and exits.
+- **Preflight before anything starts.** `node`, `npm` and `docker` on `PATH`; the
+  daemon reachable; `backend/.env` present and mode `600` (it prints the `chmod`, it
+  never edits the file); `node_modules` present or installed after saying so.
+- **No restart loops.** If a service dies in the foreground it names it, stops the
+  rest and exits non-zero.
 
 Logs live in `.run/logs/<service>.log`, rotated at 5 MB (`.run/` is git-ignored).
-Unit tests for the helpers: `python3 -m unittest discover -s tests -v`.
+The helpers have unit tests: `python3 -m unittest discover -s tests -v` (21 tests —
+port checks, health waits with timeouts, pid verification, log rotation, the state
+file).
 
 ## Verify
 
@@ -323,6 +367,8 @@ host must 404. The HMAC signature is still verified by the backend.
 
 ```
 capturehost/
+  capturehost.py     dev launcher: start/stop/status/logs for proxy + Caddy + both servers
+  tests/             launcher unit tests (unittest, no dependencies)
   backend/           Fastify API, SQLite, metrics sampler, deploy pipeline
     src/db/migrations/   numbered SQL, applied once
     src/services/        metrics, docker, containerPolicy, git, deployments
@@ -331,6 +377,7 @@ capturehost/
   frontend/          React dashboard
     src/components/      one CSS file per component
     src/pages/           Dashboard, Containers, Projects + ProjectDetail, Settings, Logs
+  deploy/            Caddyfile(s), systemd unit, production install guide
   docker-compose.dev.yml   socket proxy + capturehost-apps network
   PROGRESS.md        phase state, decisions, how to resume
 ```
