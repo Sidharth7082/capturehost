@@ -1,11 +1,18 @@
+/* The trigger's wrapper is layout only — the menu lives in a portal on <body>. */
 .dropdown {
-  position: relative;
   display: inline-flex;
 }
 
+/*
+ * position: fixed because the menu is portalled to <body> and positioned from the
+ * trigger's viewport rect (components/Dropdown.tsx). Absolute positioning inside a
+ * table's `overflow-x: auto` wrapper clipped it, gave the table its own scrollbar
+ * and scrolled the row out of view. top/left are set inline by JS.
+ */
 .dropdown__menu {
-  position: absolute;
-  top: calc(100% + 6px);
+  position: fixed;
+  top: 0;
+  left: 0;
   z-index: var(--z-overlay);
   min-width: 176px;
   padding: var(--space-1);
@@ -13,15 +20,15 @@
   border-radius: var(--radius-input);
   background: var(--raised);
   box-shadow: var(--shadow-md);
-  animation: dropdown-in 120ms ease;
 }
 
-.dropdown__menu[data-align='right'] {
-  right: 0;
+/* Animate away from the trigger: downwards when below it, upwards when flipped. */
+.dropdown__menu[data-side='bottom'] {
+  animation: dropdown-in-down 120ms ease;
 }
 
-.dropdown__menu[data-align='left'] {
-  left: 0;
+.dropdown__menu[data-side='top'] {
+  animation: dropdown-in-up 120ms ease;
 }
 
 .dropdown__item {
@@ -70,9 +77,16 @@
   background: var(--border);
 }
 
-@keyframes dropdown-in {
+@keyframes dropdown-in-down {
   from {
     opacity: 0;
     transform: translateY(-4px);
+  }
+}
+
+@keyframes dropdown-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
   }
 }

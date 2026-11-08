@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 15 — published to GitHub)
+Last updated: 2026-11-08 (session 16 — case-insensitive login, 404 page, portalled row menu)
 
 ---
 
@@ -13,7 +13,7 @@ Last updated: 2026-11-08 (session 15 — published to GitHub)
 | Item | Value |
 |---|---|
 | Current phase | **Phase 6 — backups, alerts, production: DONE**. All six phases built. |
-| Verified state | 338 backend tests pass (18 files), `tsc` clean both packages, `npm audit` 0 vulns, real deploy of `Sidharth7082/capturehost-test-app` live on 127.0.0.1:8101, screenshots at 1440 and 390 — full suite re-run in session 13 |
+| Verified state | 340 backend tests pass (18 files), `tsc` clean both packages, `npm audit` 0 vulns, real deploy of `Sidharth7082/capturehost-test-app` live on 127.0.0.1:8101, screenshots at 1440 and 390 — suite re-run in session 16 |
 | Last commit | `b81aca0 feat(cli): change:password to rotate the admin password from a shell` |
 | Next action | none — the build is complete; production runner is option A (systemd, `deploy/systemd/`) |
 
@@ -376,6 +376,33 @@ way a container is created is the deploy pipeline, which owns the safety policy.
     than left as a roadmap promise. A cross-project list wants a new
     `GET /api/deployments` and is only worth it with several projects deployed.
 
+### Session 16 fixes
+52. **The admin name is matched case-insensitively** (`WHERE username = ? COLLATE
+    NOCASE`). `Sid` failing where `sid` works is indistinguishable from a wrong
+    password: it burns a login attempt and five of them lock the IP — that is
+    exactly how the owner got locked out. NOCASE folds ASCII only, which is the
+    whole alphabet a name realistically uses; the column's BINARY `UNIQUE` index
+    cannot be violated because there is exactly one row (`CHECK (id = 1)`), so no
+    migration. The lockout key was already lowercased and the form now says the
+    name is not case-sensitive.
+53. **The router has a catch-all** (`<Route path="*" element={<NotFound />} />`
+    inside the guarded layout) and `findPage()` returns a synthetic "Not found"
+    title for paths that match nothing. Before this an unknown URL rendered the
+    layout with an empty content area and the topbar still said "Dashboard" —
+    which reads as a broken app rather than a broken link.
+54. **`Dropdown` renders its menu in a portal with `position: fixed`,** positioned
+    from the trigger's viewport rect. Every row menu sits inside a table wrapped in
+    `overflow-x: auto`, and that is a clipping box for absolute children: the menu
+    was cut at the table edge, gave the table its own scrollbar and scrolled the
+    row out of view. Fixed positioning inside a portal escapes every ancestor
+    overflow and stacking context; the cost is measuring the trigger and clamping
+    the result — flip up when the space below is tight, keep 8px from every edge.
+    It closes on outside pointerdown, Escape (focus back to the trigger), Tab,
+    selection, scroll and resize, because measured coordinates die with a scroll.
+55. **Focus lands during the same pre-paint pass that measures the menu**, so the
+    menu is hidden with `opacity: 0`, never `visibility: hidden` — an invisible
+    element cannot take focus and the first `focus()` is silently dropped.
+
 ## 8. Known gaps / deliberate deferrals
 
 - **2FA is off on the admin by the owner's decision** (2026-11-08). The dashboard
@@ -389,11 +416,8 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   Deployments tab), which is enough while there is one project. The sidebar entry,
   the `/deployments` route and the placeholder page were removed in session 14;
   `PagePlaceholder` and the `ready`/`phase` nav mechanism stay (a `ready: false`
-  item renders "Soon", and nothing uses it right now).
-- **There is no catch-all route in the frontend.** A URL that matches nothing
-  (`/deployments` today, anything else tomorrow) renders the layout with an empty
-  content area rather than a 404 page. Vite serves `index.html` for it, so the tab
-  looks blank-but-alive. A `NotFound` route is the fix when it starts to matter.
+  item renders "Soon", and nothing uses it right now). `/deployments` now lands on
+  the 404 page like any other unknown URL.
 
 - **Phase 5 prerequisites (flagged by the user, do not forget):**
   - When Caddy sits in front, set `TRUST_PROXY=true`, otherwise every request
@@ -686,6 +710,42 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   `capturehost-backend`, and `backend/.env` answers **404**.
 - Public was the owner's habit for portfolio repos (15 of 23); `gh repo edit
   Sidharth7082/capturehost --visibility private` flips it in one command if not.
+
+### 2026-11-08 — session 16 (login casing, 404 page, row-menu clipping)
+- `f6b88f5` — **case-insensitive admin login** (`getAdminByUsername` uses `= ?
+  COLLATE NOCASE`) plus a hint under the username field ("Not case-sensitive —
+  any casing of your admin name works."). Two new tests: `Admin`/`ADMIN`/`aDmIn`
+  all log in and report the *stored* name, and a mixed-case wrong password lands
+  in the single lowercase lockout bucket. No route changes.
+- `f6b88f5` — **404 page**: `pages/NotFound.tsx` (EmptyState + "Back to
+  dashboard") on `<Route path="*">` inside the guarded layout; `findPage()` now
+  returns a synthetic `Not found` topbar title for unknown paths instead of
+  falling back to "Dashboard".
+- **Row-menu clipping fixed in `components/Dropdown.tsx` + `.css`** (the shared
+  component, so Domains, Containers, Projects and the header account menu all
+  inherit it): portal to `<body>`, `position: fixed` from the trigger's rect,
+  flip up when the space below is tight, clamp 8px inside the viewport, close on
+  outside pointerdown / Escape / Tab / selection / scroll / resize, focus into the
+  first item on open and back to the trigger on Escape.
+- **Bug hit while verifying, worth remembering:** the first version used
+  `visibility: hidden` for the pre-measurement render and focused the first item
+  from a passive `useEffect`. Focus silently never moved — an invisible element
+  cannot take focus — so arrow keys did nothing while the menu looked fine.
+  Fixed by focusing inside the same `useLayoutEffect` that measures and using
+  `opacity: 0`; confirmed with real keyboard events afterwards.
+- Verified in a real browser (Chromium via CDP), at 1440×900 and 390×844, against
+  a temporary `__UiHarness` route (real `DataTable` + `Card` + `Dropdown`, no auth,
+  deleted before the commit — `grep UiHarness` is empty):
+  menu parent is `<body>`, computed position `fixed`, menu 176px wide inside the
+  viewport at both widths, `data-table` **not** scrolling vertically, page
+  `scrollWidth - clientWidth === 0`, near the bottom the menu reports
+  `data-side="top"` with its bottom at 795 against a trigger top at 801, and
+  ArrowDown/ArrowUp/Home/End walk the three items.
+- Not verified by me: the authed Domains/Containers pages themselves (that needs
+  the owner's session — no password is typed into an agent). The harness renders
+  the same components in the same `Card flush` + `DataTable` markup; the owner
+  clicks the real row menu.
+- Gates: 340 tests, `tsc` clean both packages, `npm run build` 103 modules.
 
 ## 10. How to resume (for the next agent)
 
