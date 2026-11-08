@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-08 (session 9 — drift + disk fixes, docs)
+Last updated: 2026-11-08 (session 10 — production install doc + unit fix)
 
 ---
 
@@ -556,6 +556,24 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   and touches only the test repo and scratch databases.
 - Note for whoever reads this next: the 93 % → 77 % disk reading was a spike that
   nobody could account for; treat it as unexplained and keep watching.
+
+### 2026-11-08 — session 10 (production install doc)
+- `deploy/README.md` rewritten against the real sequence: stop the dev Caddy and
+  dev servers, copy code **without** `backend/.env` or `backend/data`, build as
+  the service user, generate fresh `APP_ENCRYPTION_KEY`/`BACKUP_ENCRYPTION_KEY`,
+  create the production admin with `setup:admin` **before** the first start, then
+  unit → proxy → Caddy → isolation checks → 2FA → first deploy → first backup →
+  reboot test → retire the dev data.
+- Env file is now `capturehost:capturehost` 600 inside a `root:capturehost` 750
+  directory. As root-owned, no CLI run as the service user could read it —
+  `setup:admin` and `npm run doctor` would both fail.
+- **Unit bug found while reviewing it:** `IPAddressAllow=localhost` +
+  `IPAddressDeny=any` filters the whole cgroup, so the `git clone` of a
+  deployment would be dropped and every deploy would time out. systemd's filter
+  is address-based, so "443 out" cannot be expressed; the filter is removed and
+  the tradeoff documented in the unit and the README.
+- Dev rotation of password/2FA deliberately skipped: production has its own
+  database at `/var/lib/capturehost`, so account setup happens there.
 
 ## 10. How to resume (for the next agent)
 

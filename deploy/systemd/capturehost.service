@@ -34,8 +34,15 @@ LockPersonality=yes
 MemoryDenyWriteExecute=no
 # Network: TCP only, no raw sockets, no AF_NETLINK tricks.
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-IPAddressAllow=localhost
-IPAddressDeny=any
+#
+# NOTE: there is deliberately no IPAddressAllow/IPAddressDeny egress filter.
+# `IPAddressAllow=localhost` + `IPAddressDeny=any` looks attractive — the only
+# services this app talks to are on loopback — but systemd applies the filter to
+# the whole cgroup, so the `git clone` in a deployment would be dropped too and
+# every deploy would time out. systemd's filter is address-based, not
+# port-based, so "allowed: 443 out" cannot be expressed.
+# Consequence: builds can reach the internet. That is the cost of the feature;
+# it is why the README insists on deploying only trusted repositories.
 # A laptop-sized ceiling; raise if you deploy large builds.
 MemoryMax=2G
 TasksMax=4096
