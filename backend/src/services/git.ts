@@ -139,6 +139,28 @@ export function assertNoEscapingSymlinks(root: string): void {
   walk(root);
 }
 
+/**
+ * Turns git's stderr into something an operator can act on.
+ *
+ * The pipeline never echoes raw remote output into the build log — it can contain
+ * paths and, in the worst case, parts of a URL — so this is the only thing the UI
+ * ever shows for a failed clone. Four cases are worth distinguishing: a missing
+ * branch (what an empty repository looks like), an auth/permission refusal (404,
+ * 403, a DMCA block), a network problem, and everything else.
+ */
+export function cloneFailureHint(message: string, branch: string): string {
+  if (/Remote branch .* not found/i.test(message)) {
+    return `This repository has no branch "${branch}" — it may be empty, or the branch is named differently`;
+  }
+  if (/Authentication failed|could not read Username|repository not found|403/i.test(message)) {
+    return 'Repository not found, or the access token is missing/invalid for it (a DMCA-blocked repository also answers 403)';
+  }
+  if (/Could not resolve host|Connection timed out|Network is unreachable/i.test(message)) {
+    return 'Could not reach GitHub from this machine — check the network';
+  }
+  return 'Clone failed';
+}
+
 export async function cloneRepository(options: CloneOptions): Promise<CloneResult> {
   const repoUrl = RepoUrlSchema.parse(options.repoUrl);
   const branch = BranchSchema.parse(options.branch);
@@ -175,10 +197,11 @@ export async function cloneRepository(options: CloneOptions): Promise<CloneResul
   } catch (error) {
     const message = error instanceof Error ? error.message : 'git clone failed';
     // Auth failures are the common case for private repos; say so without
-    // echoing anything the token could appear in.
-    const hint = /Authentication failed|could not read Username|repository not found|403/i.test(message)
-      ? 'Repository not found, or the access token is missing/invalid for it'
-      : 'Clone failed';
+    // echoing anything the token could appear in. The other two cases worth naming
+    // are "the branch does not exist" (which is what an empty repository looks
+    // like) and "we cannot reach GitHub at all" — both used to surface as the
+    // useless word "Clone failed".
+    const hint = cloneFailureHint(message, branch);
 
     options.logger.warn({ repoUrl, branch, err: message }, 'git clone failed');
     throw AppError.badRequest(hint, 'clone_failed');

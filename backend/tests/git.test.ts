@@ -8,6 +8,7 @@ import {
   RepoUrlSchema,
   assertDockerfilePresent,
   assertNoEscapingSymlinks,
+  cloneFailureHint,
 } from '../src/services/git.js';
 import { parseBuildOutput } from '../src/services/deployments.js';
 
@@ -147,5 +148,28 @@ describe('parseBuildOutput', () => {
 
   it('ignores blank lines', () => {
     expect(parseBuildOutput(Buffer.from('\n\n'))).toEqual([]);
+  });
+});
+
+describe('cloneFailureHint', () => {
+
+  it('names a missing branch, which is what an empty repository looks like', () => {
+    expect(cloneFailureHint("fatal: Remote branch main not found in upstream origin", 'main')).toContain(
+      'no branch "main"',
+    );
+  });
+
+  it('keeps the auth/permission case, now mentioning the DMCA 403', () => {
+    const hint = cloneFailureHint("fatal: unable to access '…': The requested URL returned error: 403", 'main');
+    expect(hint).toContain('access token');
+    expect(hint).toContain('DMCA');
+  });
+
+  it('names a network problem', () => {
+    expect(cloneFailureHint('fatal: Could not resolve host: github.com', 'main')).toContain('Could not reach GitHub');
+  });
+
+  it('falls back rather than inventing a reason', () => {
+    expect(cloneFailureHint('something else entirely', 'main')).toBe('Clone failed');
   });
 });
