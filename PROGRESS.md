@@ -648,9 +648,10 @@ way a container is created is the deploy pipeline, which owns the safety policy.
 - `docker-compose.yml` for production — Phase 6 (dev compose exists).
 - **The deployment queue is in memory** — a backend restart loses queued builds
   (the row stays `queued`; cancel it and deploy again).
-- **Webhooks need a tunnel.** The backend listens on 127.0.0.1, so GitHub cannot
-  reach `/api/webhooks/github/:id` directly. Expose only that path (Cloudflare
-  Tunnel / Tailscale Funnel) before turning the webhook on in the repo settings.
+- **Webhooks need a tunnel, and now have one.** The backend listens on 127.0.0.1, so
+  GitHub reaches `/api/webhooks/github/:id` through the gateway on
+  `hooks.<domain>` → `127.0.0.1:8081` (session 23), which forwards exactly that one
+  path. A delivery from the real GitHub has not been observed yet — see §8a.
 - **Only deploy repositories you trust.** Builds run arbitrary code from the
   Dockerfile (and the container runs it). There is no sandbox beyond the container
   policy yet.
@@ -669,15 +670,33 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   says skip anything needing a new phase; both need design work on the token set).
 - `public` mode is implemented but **untested** (needs a real domain and an
   inbound port); the README says so.
-- The Caddyfile's dashboard site answers an empty 200 (not 404) for a foreign
-  Host on `:8090`; it never serves the dashboard for it, but the status code is
-  cosmetic.
 - No certificate probes yet in local mode (`https_ok` stays null until public
   mode is used).
-- Webhook gateway (`WEBHOOK_PUBLIC_HOST`) is documented but not enabled.
-- Audit log has no retention/rotation yet (Phase 6).
 - No container **create** or **exec** from the UI — deliberate (containers are only
   created by the deploy pipeline, which owns the safety policy).
+
+### 8a. Built and unit-tested, but never exercised against the real thing
+
+These are the honest edges of "complete". Each has tests around it, none has met the
+outside world yet:
+
+- **`CADDY_MODE=public`** (direct 80/443 + automatic HTTPS). Needs a real domain and
+  an inbound port; the tunnel path is the tested one.
+- **A real GitHub connect.** Every test fakes `fetch`. The first live `GET /user`
+  through the integration is still to happen, so the token round-trip, the login in
+  the UI and the expiry field are unproven against github.com.
+- **A real webhook delivery.** The gateway answers correctly (401 unsigned, 404
+  unknown project), but no signed push from GitHub has arrived:
+  `webhook_deliveries` is at 0.
+- **A private-repo clone through the integration token.** The plumbing is tested
+  with a fake git; the first real `askpass` clone of a private repository is
+  untested.
+- **A restore from backup.** Backups are created and verified, the restore path is
+  tested against a stopped backend, but a real "restore my live database" has not
+  been done on this install.
+- **Rollback after a genuinely broken commit.** Tested in the pipeline suite; not
+  yet performed on a live deployment here.
+- **A push-to-deploy loop** (webhook → build → swap) end to end on this machine.
 - Inspect shows env **names only**; editing env vars happens per project (Phase 4).
 - The stats poller calls `listContainers` every tick; fine for a laptop, would
   want the event stream on a busier host.
