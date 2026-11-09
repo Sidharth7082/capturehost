@@ -62,6 +62,14 @@ export interface DeploymentServiceDeps {
   caddy?: DomainRouter;
   /** Optional: fed into the notification feed (deploy failures today). */
   onEvent?: (event: { type: 'deploy.failed'; projectName: string; deploymentId: number; detail: string }) => void;
+  /**
+   * Fallback credential for private clones: the GitHub integration's token.
+   *
+   * Returns null when no integration is connected. A per-project token always
+   * wins — see `cloneTokenFor`. The value is used only for the git askpass
+   * helper; it must never be logged or handed to Docker.
+   */
+  integrationToken?: () => string | null;
 }
 
 interface QueueEntry {
@@ -87,6 +95,7 @@ export class DeploymentService {
   private onLog?: (deploymentId: number, line: string) => void;
   private readonly caddy?: DomainRouter;
   private readonly onEvent?: DeploymentServiceDeps['onEvent'];
+  private readonly integrationToken?: () => string | null;
 
   constructor(deps: DeploymentServiceDeps) {
     this.db = deps.db;
@@ -96,6 +105,7 @@ export class DeploymentService {
     this.onLog = deps.onLog;
     this.caddy = deps.caddy;
     this.onEvent = deps.onEvent;
+    this.integrationToken = deps.integrationToken;
   }
 
   isBusy(): boolean {
@@ -281,7 +291,7 @@ export class DeploymentService {
         repoUrl: project.repo_url,
         branch: project.branch,
         destDir: workDir,
-        token: this.decryptToken(project),
+        token: this.cloneTokenFor(project),
         timeoutMs: this.config.deploy.gitTimeoutMs,
         maxBytes: this.config.deploy.maxCloneBytes,
         logger: this.logger,
@@ -722,6 +732,15 @@ export class DeploymentService {
     }
 
     throw AppError.conflict('No free host port in the configured range', 'no_free_port');
+  }
+
+  /**
+   * The credential git gets: the project's own token if it has one, otherwise the
+   * connected GitHub integration's. Whichever it is, it goes to the askpass
+   * helper only — never into the URL, the argv, the build log or the container.
+   */
+  private cloneTokenFor(project: ProjectRow): string | null {
+    return this.decryptToken(project) ?? this.integrationToken?.() ?? null;
   }
 
   private decryptToken(project: ProjectRow): string | null {

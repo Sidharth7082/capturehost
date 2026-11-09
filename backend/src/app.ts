@@ -18,6 +18,7 @@ import { registerHealthRoutes } from './routes/health.js';
 import { createMetricsHub, registerMetricsRoutes } from './routes/metrics.js';
 import { registerProjectRoutes } from './routes/projects.js';
 import { registerWebhookRoutes } from './routes/webhook.js';
+import { registerGithubRoutes } from './routes/github.js';
 import { createServer, type AppInstance } from './server.js';
 import { AuthService } from './services/auth.js';
 import { BackupService } from './services/backup.js';
@@ -31,6 +32,7 @@ import { ContainerWatcher } from './services/containerWatcher.js';
 import { RejectionTracker } from './routes/webhook.js';
 import { DeploymentService } from './services/deployments.js';
 import { DockerService } from './services/docker.js';
+import { GithubService } from './services/github.js';
 import { DockerStatsPoller } from './services/dockerStats.js';
 import { createGpuProbe, type GpuProbe } from './services/gpu.js';
 import { LogHub } from './services/logHub.js';
@@ -54,6 +56,8 @@ export interface BuildAppOptions {
   deploymentService?: DeploymentService;
   /** Injected in tests: a stub Caddy controller (no admin API needed). */
   caddyService?: CaddyService;
+  /** Injected in tests: a GitHub client that never leaves the process. */
+  githubService?: GithubService;
   /** Injected in tests: stubs for the Phase 6 services. */
   notificationService?: NotificationService;
   backupService?: BackupService;
@@ -173,6 +177,10 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   // the feed while it is happening.
   const notifications =
     options.notificationService ?? new NotificationService({ db, config, logger });
+  // GitHub is read-only by design: the service only ever issues GETs, and the
+  // token it holds is write-only for everything else in the app.
+  const github = options.githubService ?? new GithubService({ db, config, logger, notifications });
+  const githubLimiter = new SessionRateLimiter(30);
   const backups = options.backupService ?? new BackupService({ db, config, logger });
   const retention = new RetentionService({ db, config, logger });
   const domainMonitor = new DomainMonitor({ db, caddy, notifications, logger });
@@ -212,6 +220,7 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
       client: docker.rawClient?.() ?? new Docker({ host: config.docker.hostUrl.replace(/^tcp:\/\//, '') }),
       onLog: (deploymentId, line) => logHub.publish(deploymentId, line),
       caddy,
+      integrationToken: () => github.tokenForClone(),
       onEvent: (event) => {
         void notifications.notify({
           event: event.type,
@@ -258,6 +267,13 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   });
 
   registerHealthRoutes(app, { db, version: APP_VERSION, startedAt });
+  registerGithubRoutes(app, {
+    db,
+    github,
+    limiter: githubLimiter,
+    trustedAddresses: config.trustProxyAddresses,
+  });
+
   registerAuthRoutes(app, {
     auth,
     registry,

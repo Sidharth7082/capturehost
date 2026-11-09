@@ -1,6 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import type { LightMyRequestResponse } from 'fastify';
 import { buildApp } from '../src/app.js';
+import type { GithubService } from '../src/services/github.js';
 import type { DeploymentService } from '../src/services/deployments.js';
 import type { CaddyService } from '../src/services/caddy.js';
 import { DockerService } from '../src/services/docker.js';
@@ -42,6 +43,12 @@ export async function startApp(
     deployments?: DeploymentService;
     /** Caddy stub so route tests never need a real controller. */
     caddy?: CaddyService;
+    /**
+     * Builds the GitHub client against the harness's own database, so a token
+     * written by one route is visible to the next. Its `fetch` is faked by the
+     * caller: route tests must never reach the network.
+     */
+    github?: (db: TestDb['db']) => GithubService;
   } = {},
 ): Promise<AuthedApp> {
   const testDb = createTestDb();
@@ -59,6 +66,7 @@ export async function startApp(
     dockerService: new DockerService({ config, logger: silentLogger, client: dockerFake.client }),
     ...(options.deployments ? { deploymentService: options.deployments } : {}),
     ...(options.caddy ? { caddyService: options.caddy } : {}),
+    ...(options.github ? { githubService: options.github(testDb.db) } : {}),
   });
 
   await app.listen({ port: 0, host: '127.0.0.1' });

@@ -3,6 +3,7 @@ import { useAuth } from '../auth/AuthContext';
 import { Card } from '../components/Card';
 import { StatusPill } from '../components/StatusPill';
 import { AuditSection } from './settings/AuditSection';
+import { GithubSection } from './settings/GithubSection';
 import { PasswordSection } from './settings/PasswordSection';
 import { SessionsSection } from './settings/SessionsSection';
 import { TwoFactorSection } from './settings/TwoFactorSection';
@@ -59,6 +60,8 @@ export function Settings(): JSX.Element {
         <SessionsSection />
         <AuditSection />
       </div>
+
+      <GithubSection />
 
       <Card title="Backups & notifications" subtitle="Arriving in Phase 6">
         <p className="form-hint" style={{ fontSize: 13 }}>

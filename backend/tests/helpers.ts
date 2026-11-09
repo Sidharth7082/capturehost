@@ -113,6 +113,13 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       attemptsDays: 7,
       notificationsDays: 30,
     },
+    github: {
+      apiBase: 'https://api.github.com',
+      timeoutMs: 2000,
+      cacheTtlMs: 60_000,
+      perPage: 30,
+      expiryWarningDays: 14,
+    },
     caddy: {
       mode: 'local',
       adminUrl: 'http://127.0.0.1:2019',

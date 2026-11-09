@@ -44,6 +44,7 @@ export function App() {
               <Route path="security" element={<Security />} />
               <Route path="logs" element={<Logs />} />
               <Route path="settings" element={<Settings />} />
+              {/* TEMPORARY screenshot harness — removed before commit. */}
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>

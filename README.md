@@ -279,6 +279,60 @@ cd ~/capturehost/backend && node scripts/integration-deploy.mjs
 Rollback re-runs the previous successful image without rebuilding. Images are
 tagged `capturehost/<slug>:<short-sha>` and pruned to `DEPLOY_KEEP_IMAGES` (3).
 
+## Connect GitHub (read-only)
+
+Without this, a project is created by pasting `https://github.com/owner/repo`.
+With it, **New project → From GitHub** lists the repositories a token can see, with
+private/fork/archived badges and the default branch preselected, and the same token
+is used to clone private repositories (never in a URL, argument list, log or
+container — see below).
+
+### Create the token
+
+GitHub → **Settings → Developer settings → Personal access tokens → Fine-grained
+tokens → Generate new token**:
+
+| Field | Value |
+|---|---|
+| Resource owner | your account |
+| Repository access | *All repositories*, or *Only select repositories* |
+| **Repository permissions → Contents** | **Read** — needed to list files, read the Dockerfile and clone a private repo |
+| **Repository permissions → Metadata** | **Read** — mandatory once any repository permission is granted |
+
+Nothing else. Do **not** grant `Contents: Write`, `Administration`, `Workflows`,
+`Pull requests`, `Secrets` or any account permission: CaptureHost only ever issues
+`GET` requests to `api.github.com`, so any write scope is dead weight on a
+credential that now sits on disk.
+
+Then **Settings → Integrations → GitHub** in CaptureHost, paste it, and optionally
+record the expiry date — GitHub does not expose a token's expiry through the API, so
+the date you type is the only way to get the 14-day warning (notification + doctor).
+
+### What it stores, and what it refuses to do
+
+- The token is encrypted with `APP_ENCRYPTION_KEY` and stored in one column. It is
+  **write-only**: no API response, log line, audit row or notification ever contains
+  it — there are tests that scan all four for the fixture token.
+- One host, `https://api.github.com`, built from a constant; no user-supplied URL,
+  `redirect: 'error'` (a 30x cannot move the request with its header), 8 s timeout.
+- Read-only: only `GET /user`, `GET /user/repos`, `GET /search/repositories` and
+  `GET /repos/{owner}/{repo}/contents/Dockerfile`.
+- Repo lists are cached 60 s and revalidated with GitHub's ETag; a rate-limited
+  answer becomes a `429` with `Retry-After` instead of a hang.
+- Disconnect deletes the row and clears the cache.
+
+Tuning, all optional: `GITHUB_API_TIMEOUT_MS` (8000), `GITHUB_CACHE_TTL_MS` (60000),
+`GITHUB_REPOS_PER_PAGE` (30), `GITHUB_TOKEN_WARNING_DAYS` (14).
+
+### Private repositories and the clone
+
+When a project has no token of its own, the integration's token is handed to `git`
+through the existing throwaway `askpass` helper (`services/git.ts`), so it never
+appears in the clone URL, the argv, `ps`, the build log, a Docker build argument,
+the container's environment or an image layer. A per-project token still wins if one
+is set. Deploying a private repository runs **its** code on this machine — the UI
+says so when you select one.
+
 ## Domains and Caddy
 
 Deployed apps are reached through Caddy. The backend never edits

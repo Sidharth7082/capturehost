@@ -31,6 +31,23 @@
 
 .security-row__value {
   font-variant-numeric: tabular-nums;
+  /* Long values (a mono URL, an expiry pill) must wrap instead of widening the
+     card past the viewport on a 390 px screen. */
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .security-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .security-row__value {
+    text-align: left;
+  }
 }
 
 .form-stack {

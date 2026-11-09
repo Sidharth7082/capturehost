@@ -1,6 +1,8 @@
 import { useState, type JSX } from 'react';
 import { ApiError } from '../../api/client';
 import { createProject, type Project } from '../../api/projects';
+import type { GithubRepo } from '../../api/github';
+import { GithubRepoPicker } from './GithubRepoPicker';
 import { Button } from '../../components/Button';
 import { Modal } from '../../components/Modal';
 
@@ -33,6 +35,9 @@ export function NewProjectModal({ open, onClose, onCreated }: Props): JSX.Elemen
   const [cpu, setCpu] = useState('0.5');
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  /** How the repository is chosen: the connected GitHub account, or a pasted URL. */
+  const [tab, setTab] = useState<'github' | 'url'>('github');
+  const [selectedRepo, setSelectedRepo] = useState<GithubRepo | null>(null);
 
   const nameError = name !== '' && !NAME_PATTERN.test(name) ? 'Lowercase letters, digits and dashes, 3–64 characters.' : null;
   const repoError = repoUrl !== '' && !REPO_PATTERN.test(repoUrl) ? 'Use https://github.com/owner/repo' : null;
@@ -107,17 +112,61 @@ export function NewProjectModal({ open, onClose, onCreated }: Props): JSX.Elemen
           <span className="field__hint">Used for the container name, the image tag and the slug.</span>
         </label>
 
-        <label className="field">
-          <span className="field__label">Repository</span>
-          <input
-            className="input"
-            value={repoUrl}
-            placeholder="https://github.com/owner/repo"
-            onChange={(event) => setRepoUrl(event.target.value.trim())}
+        <div className="repo-tabs" role="tablist" aria-label="Repository source">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'github'}
+            className={`repo-tabs__tab${tab === 'github' ? ' repo-tabs__tab--active' : ''}`}
+            onClick={() => setTab('github')}
+          >
+            From GitHub
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'url'}
+            className={`repo-tabs__tab${tab === 'url' ? ' repo-tabs__tab--active' : ''}`}
+            onClick={() => setTab('url')}
+          >
+            Paste URL
+          </button>
+        </div>
+
+        {tab === 'github' ? (
+          <GithubRepoPicker
+            selected={selectedRepo}
+            onSelect={(repo) => {
+              setSelectedRepo(repo);
+              setRepoUrl(repo.htmlUrl.replace(/\.git$/, ''));
+              setBranch(repo.defaultBranch);
+              setName(suggestName(repo.name));
+            }}
           />
-          {repoError ? <span className="field__error">{repoError}</span> : null}
-          <span className="field__hint">HTTPS GitHub URLs only. SSH and other schemes are rejected.</span>
-        </label>
+        ) : (
+          <label className="field">
+            <span className="field__label">Repository</span>
+            <input
+              className="input"
+              value={repoUrl}
+              placeholder="https://github.com/owner/repo"
+              onChange={(event) => {
+                setRepoUrl(event.target.value.trim());
+                setSelectedRepo(null);
+              }}
+            />
+            {repoError ? <span className="field__error">{repoError}</span> : null}
+            <span className="field__hint">HTTPS GitHub URLs only. SSH and other schemes are rejected.</span>
+          </label>
+        )}
+
+        {tab === 'github' && repoUrl !== '' ? (
+          <div className="repo-selected">
+            <span className="repo-selected__label">Selected</span>
+            <code className="repo-selected__value">{repoUrl.replace(/^https:\/\/github\.com\//, '')}</code>
+            {repoError ? <span className="field__error">{repoError}</span> : null}
+          </div>
+        ) : null}
 
         <div className="field-row">
           <label className="field">
@@ -182,4 +231,20 @@ export function NewProjectModal({ open, onClose, onCreated }: Props): JSX.Elemen
       </div>
     </Modal>
   );
+}
+
+/**
+ * Turns a repository name into something the name field will accept.
+ *
+ * The server stays the authority; this only saves typing. Short names are padded
+ * because the pattern requires three characters.
+ */
+function suggestName(repoName: string): string {
+  const slug = repoName
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  const padded = slug.length < 3 ? `${slug || 'app'}-app` : slug;
+  return padded.slice(0, 64).replace(/-+$/, '');
 }

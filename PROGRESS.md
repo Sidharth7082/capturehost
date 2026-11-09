@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-09 (session 25 — public path live: tunnel routes, wildcard DNS, first public hostname)
+Last updated: 2026-11-09 (session 26 — GitHub integration: pick repositories, read-only token)
 
 ---
 
@@ -587,6 +587,36 @@ way a container is created is the deploy pipeline, which owns the safety policy.
     `writeAudit` (actor `local-cli (hermes)`) → `caddy.sync('domain-add')` — so the
     row, the audit trail and the route are the same ones the route handler would
     have produced. The script was deleted afterwards; it is not a second API.
+
+### Session 26 (GitHub integration)
+82. **The token is a row, not a service.** `integrations(name, token_encrypted, login,
+    token_expires_at, connected_at, last_validated_at, last_error)` — one row per
+    provider, encrypted with `APP_ENCRYPTION_KEY` and context-tagged. Nothing in the
+    repository layer ever sees plaintext, so no repo function can leak one.
+83. **GitHub is faked at `fetch`, never at the service.** `GithubService` takes an
+    injectable `fetchImpl` and `now`, so every test in `tests/github.test.ts` runs
+    without a network or a token, and the cache/expiry tests can move the clock
+    instead of sleeping.
+84. **The host is asserted twice.** The base URL is a constant, and `request()`
+    re-parses the final URL and refuses anything that is not `https:` + `api.github.com`
+    before the call. Redirects are `error`, not followed. That is what keeps "fixed
+    host" true even if a future edit takes a base from config.
+85. **Search is GitHub's, not ours.** `/user/repos` has no query parameter, so a
+    non-empty query switches to `/search/repositories?q=<query> user:<login>`. Both
+    paths page server-side and share the ETag cache, and a rate-limited answer
+    becomes `429` + `Retry-After` from `x-ratelimit-reset` (or `retry-after`).
+86. **Dockerfile checks are per selection, not per row.** `GET /repos/:o/:r/dockerfile`
+    is called when a repository is selected — including a selection restored from
+    above — so a 30-repo page costs one request, not thirty.
+87. **Expiry is recorded, not discovered.** GitHub does not expose a PAT's expiry via
+    the API, so the connect form takes an optional date; the 14-day warning and the
+    doctor only fire when one was recorded, and the UI says "not recorded" otherwise
+    rather than inventing a date.
+88. **The clone credential is unchanged where it matters.** A per-project token still
+    wins; the integration token is only the fallback, and it reaches git exclusively
+    through the existing askpass helper. `tests/github-clone-token.test.ts` scans the
+    deployment log, the audit log, the build arguments and the container config for
+    the fixture token and asserts it appears in none of them.
 
 ## 8. Known gaps / deliberate deferrals
 
@@ -1259,6 +1289,41 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   `sudo resolvectl flush-caches`.
 - Operationally: the domain was attached while the backend was running, and the
   reconciler pushed the route on the spot (`added: 1`) — no restart needed.
+
+### 2026-11-09 — session 26 (GitHub integration)
+- **Backend.** Migration `009_integrations.sql`; `db/integrations.repo.ts`;
+  `services/github.ts` (status/connect/disconnect/listRepos/hasDockerfile, ETag cache,
+  rate-limit mapping, 401 alerting, expiry reminder); `routes/github.ts`
+  (`/api/github/status`, `POST /connect`, `DELETE /disconnect`, `GET /repos`,
+  `GET /repos/:owner/:repo/dockerfile`, all `requireAuth` + per-session limiter, CSRF
+  from the global hook); wiring in `app.ts`; `deployments.ts` gained
+  `integrationToken` with project-token precedence; doctor check `github-integration`.
+  Config: `GITHUB_API_TIMEOUT_MS`, `GITHUB_CACHE_TTL_MS`, `GITHUB_REPOS_PER_PAGE`,
+  `GITHUB_TOKEN_WARNING_DAYS`.
+- **Frontend.** `api/github.ts`; `Settings → Integrations · GitHub` card
+  (connect/disconnect, login, expiry pill, last-validated, endpoint, errors);
+  `GithubRepoPicker` (debounced search, paged list, private/fork/archived badges,
+  selection reveal, lazy Dockerfile line, not-connected / expired / rate-limited /
+  no-results states); `NewProjectModal` tabs **From GitHub** / **Paste URL**, with
+  selection filling repo URL, branch and a suggested name.
+- **Tests (33 new, 3 files).** `github.test.ts` (16) — connect/validate/encrypt,
+  listing, paging, search, ETag 304, 403→429, 401→alert, malformed payload,
+  not-connected, dockerfile, expiry notifications. `github-routes.test.ts` (14) —
+  401 for every route, CSRF on connect/disconnect, no token in any response, expiry
+  validation, owner/repo validation, 429 at the session budget.
+  `github-clone-token.test.ts` (3) — integration token reaches git only, per-project
+  token wins, nothing leaks into log/audit/build args/container; added the five routes
+  to the all-routes 401 loop.
+- **Screenshots** of the Integrations card and the From GitHub picker at 1440 and 390
+  with mocked data (`window.fetch` shim + fixture route, both deleted before the
+  commit), e.g. `~/.hermes/cache/scratch/shots/github-{1440,390}.png`.
+  Gotcha worth remembering: `chrome --headless --window-size=390` renders at
+  **500 px** and crops, which reads as horizontal overflow. Measured with
+  `Emulation.setDeviceMetricsOverride` instead: `clientWidth 390 = scrollWidth 390`,
+  no overflowing elements. The stacked-row media query stayed anyway — it is right
+  for real phones.
+- Gates: 413 backend tests / 23 files, launcher 21, `tsc` clean both packages, build
+  117 modules, `npm audit` 0 in both packages.
 
 ## 10. How to resume (for the next agent)
 

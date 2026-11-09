@@ -54,6 +54,15 @@ const EnvSchema = z.object({
     .default('false')
     .transform((value) => value === 'true'),
 
+  // ---- github integration (read-only) ----
+  /** Short on purpose: a hanging GitHub call must not hold a dashboard request. */
+  GITHUB_API_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(8_000),
+  /** Repo lists are cached with their ETag for this long; 0 disables the cache. */
+  GITHUB_CACHE_TTL_MS: z.coerce.number().int().min(0).max(600_000).default(60_000),
+  GITHUB_REPOS_PER_PAGE: z.coerce.number().int().min(1).max(100).default(30),
+  /** Warn (notification + doctor) this many days before the token expires. */
+  GITHUB_TOKEN_WARNING_DAYS: z.coerce.number().int().min(1).max(365).default(14),
+
   // ---- docker ----
   // Always the socket proxy, never a raw socket path. See docker-compose.dev.yml.
   DOCKER_HOST_URL: z.string().url().default('http://127.0.0.1:2375'),
@@ -237,6 +246,15 @@ export interface AppConfig {
     notificationsDays: number;
   };
 
+  github: {
+    /** Fixed, not configurable per request: api.github.com over HTTPS. */
+    apiBase: string;
+    timeoutMs: number;
+    cacheTtlMs: number;
+    perPage: number;
+    expiryWarningDays: number;
+  };
+
   caddy: {
     mode: 'local' | 'tunnel' | 'public';
     adminUrl: string;
@@ -403,6 +421,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       deliveriesDays: value.RETENTION_DELIVERIES_DAYS,
       attemptsDays: value.RETENTION_ATTEMPTS_DAYS,
       notificationsDays: value.RETENTION_NOTIFICATIONS_DAYS,
+    },
+
+    github: {
+      apiBase: 'https://api.github.com',
+      timeoutMs: value.GITHUB_API_TIMEOUT_MS,
+      cacheTtlMs: value.GITHUB_CACHE_TTL_MS,
+      perPage: value.GITHUB_REPOS_PER_PAGE,
+      expiryWarningDays: value.GITHUB_TOKEN_WARNING_DAYS,
     },
 
     caddy: {

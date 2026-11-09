@@ -1,0 +1,56 @@
+/**
+ * Settings → Integrations → GitHub.
+ * Mirrors the security panel rhythm: label/value rows, hint text, one action row.
+ */
+
+.github-integration {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.github-integration__loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+
+.github-integration__intro {
+  margin: 0 0 var(--space-2);
+  line-height: 1.55;
+  max-width: 68ch;
+}
+
+.github-integration__intro code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+}
+
+.github-integration__mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.github-integration__muted {
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+
+.github-integration__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+}
+
+.github-integration__hint {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}

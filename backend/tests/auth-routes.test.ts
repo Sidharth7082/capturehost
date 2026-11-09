@@ -53,6 +53,12 @@ const PROTECTED_ROUTES: ReadonlyArray<[string, string]> = [
   ['DELETE', '/api/projects/1/env/API_KEY'],
   ['GET', '/api/projects/1/webhook'],
   ['GET', '/api/project-ports'],
+  // Phase 7 — GitHub integration (read-only)
+  ['GET', '/api/github/status'],
+  ['POST', '/api/github/connect'],
+  ['DELETE', '/api/github/disconnect'],
+  ['GET', '/api/github/repos'],
+  ['GET', '/api/github/repos/octocat/repo/dockerfile'],
   // Phase 5
   ['GET', '/api/domains'],
   ['POST', '/api/domains'],

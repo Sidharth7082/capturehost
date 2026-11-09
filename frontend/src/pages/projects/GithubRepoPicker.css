@@ -1,0 +1,256 @@
+/**
+ * Tabs, the GitHub repository picker, and the "selected repository" strip inside
+ * the new-project dialog. Sizes are chosen so the list scrolls inside the modal
+ * instead of stretching it.
+ */
+
+.repo-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  align-self: flex-start;
+}
+
+.repo-tabs__tab {
+  border: 0;
+  cursor: pointer;
+  padding: 6px 14px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  background: transparent;
+  border-radius: var(--radius-pill);
+  transition: var(--transition);
+}
+
+.repo-tabs__tab:hover {
+  color: var(--text);
+}
+
+.repo-tabs__tab--active {
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.repo-selected {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-radius: var(--radius-input);
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+}
+
+.repo-selected__label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.repo-selected__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+/* --------------------------------------------------------------- the picker */
+
+.repo-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* The list scrolls inside the dialog; rows never widen it. */
+.repo-picker__list > li {
+  min-width: 0;
+}
+
+.repo-picker__search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.repo-picker__search .input {
+  width: 100%;
+}
+
+.repo-picker__cached {
+  position: absolute;
+  right: 10px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.repo-picker__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  background: var(--bg-subtle);
+  padding: 6px;
+}
+
+.repo-picker__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.repo-picker__row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.repo-picker__row:hover {
+  background: var(--raised-hover);
+  border-color: var(--border);
+}
+
+.repo-picker__row--selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.repo-picker__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+  /* A very long owner/repo must not push the modal wider. */
+  overflow-wrap: anywhere;
+}
+
+.repo-picker__desc {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+.repo-picker__meta {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.repo-picker__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.repo-picker__page {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.repo-picker__notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--radius-input);
+  border: 1px dashed var(--border-strong);
+  background: var(--bg-subtle);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.repo-picker__notice strong {
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}
+
+.repo-picker__notice a {
+  color: var(--accent);
+}
+
+.repo-picker__dockerfile {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+
+.repo-picker__dockerfile-ok {
+  color: var(--success);
+}
+
+.repo-picker__dockerfile-bad {
+  color: var(--warning);
+}
+
+.repo-picker__warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-input);
+  background: var(--warning-soft);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+/* -------------------------------------------------------------------- badges */
+
+.badge {
+  font-size: 10px;
+  line-height: 1.6;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  background: var(--raised);
+  white-space: nowrap;
+}
+
+.badge--private {
+  color: var(--info);
+  border-color: var(--info);
+  background: var(--info-soft);
+}
+
+.badge--warn {
+  color: var(--warning);
+  border-color: var(--warning);
+  background: var(--warning-soft);
+}

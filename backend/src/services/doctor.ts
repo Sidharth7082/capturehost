@@ -8,6 +8,7 @@ import { diskUsageFor } from './diskMonitor.js';
 import type { AppConfig } from '../config.js';
 import type { Db } from '../db/connection.js';
 import { getAdmin } from '../db/auth.repo.js';
+import { getIntegration } from '../db/integrations.repo.js';
 import { latestBackup } from '../db/ops.repo.js';
 import type { Logger } from '../logger.js';
 import type { CaddyService } from './caddy.js';
@@ -487,6 +488,54 @@ export class DoctorService {
               fix: 'Recommended now, required before you add any tunnel route to the dashboard: Settings → Security → Enable 2FA',
             },
     );
+
+    // -------------------------------------------------------------- github
+    // Read-only integration; the only thing to report is whether it is alive and
+    // how long the credential has left. Never the credential itself.
+    {
+      const github = getIntegration(this.db, 'github');
+      const warningDays = this.config.github.expiryWarningDays;
+      const days = github?.token_expires_at ? Math.ceil((github.token_expires_at - Date.now()) / 86_400_000) : null;
+
+      push(
+        github === null
+          ? {
+              id: 'github-integration',
+              title: 'GitHub integration',
+              status: 'skip',
+              detail: 'not connected — repositories must be pasted as URLs',
+            }
+          : days === null
+            ? {
+                id: 'github-integration',
+                title: 'GitHub integration',
+                status: 'pass',
+                detail: `connected as ${github.login}; token expiry not recorded (GitHub does not expose it — add it when reconnecting)`,
+              }
+            : days < 0
+              ? {
+                  id: 'github-integration',
+                  title: 'GitHub integration',
+                  status: 'fail',
+                  detail: `token for ${github.login} expired ${Math.abs(days)} day(s) ago`,
+                  fix: 'Create a new token and reconnect it in Settings → Integrations',
+                }
+              : days <= warningDays
+                ? {
+                    id: 'github-integration',
+                    title: 'GitHub integration',
+                    status: 'warn',
+                    detail: `token for ${github.login} expires in ${days} day(s)`,
+                    fix: 'Rotate the token in Settings → Integrations before it expires',
+                  }
+                : {
+                    id: 'github-integration',
+                    title: 'GitHub integration',
+                    status: 'pass',
+                    detail: `connected as ${github.login}, token expires in ${days} day(s)`,
+                  },
+      );
+    }
 
     // -------------------------------------------------------------- secrets
     const envText = this.environmentText();
