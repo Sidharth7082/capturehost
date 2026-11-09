@@ -279,6 +279,10 @@ cd ~/capturehost/backend && node scripts/integration-deploy.mjs
 Rollback re-runs the previous successful image without rebuilding. Images are
 tagged `capturehost/<slug>:<short-sha>` and pruned to `DEPLOY_KEEP_IMAGES` (3).
 
+## Deployable API examples
+
+Two minimal backends that deploy as-is — FastAPI on port 8000 and Express on port 8080, both non-root and capability-free: [`examples/`](examples/README.md).
+
 ## Databases (Postgres)
 
 Create a Postgres container from the dashboard, link it to a project, browse its

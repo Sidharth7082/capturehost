@@ -184,7 +184,7 @@ The three things that bite an API specifically:
    state in a linked database (Databases → New database → Clone/Upload/Empty) or in
    an external object store.
 
-Minimal FastAPI example:
+Two working examples live in [`examples/`](../examples/README.md) — FastAPI (port 8000) and Express (port 8080), both built and run against the real container policy. The shape:
 
 ```dockerfile
 FROM python:3.12-slim
