@@ -531,7 +531,7 @@ function EnvironmentTab({ projectId }: { projectId: number }): JSX.Element {
   );
 }
 
-function SettingsTab({ project, onChanged }: { project: Project; onChanged: () => Promise<void> }): JSX.Element {
+export function SettingsTab({ project, onChanged }: { project: Project; onChanged: () => Promise<void> }): JSX.Element {
   const toast = useToast();
   const navigate = useNavigate();
   const [webhook, setWebhook] = useState<WebhookInfo | null>(null);
@@ -550,7 +550,7 @@ function SettingsTab({ project, onChanged }: { project: Project; onChanged: () =
   const webhookUrl = `${window.location.origin}${webhook?.path ?? `/api/webhooks/github/${project.id}`}`;
 
   return (
-    <div className="detail-grid">
+    <div className="settings-grid">
       <Card title="Webhook" subtitle="Auto-redeploy when you push to this branch.">
         <div className="webhook">
           <label className="field">
@@ -585,7 +585,7 @@ function SettingsTab({ project, onChanged }: { project: Project; onChanged: () =
       </Card>
 
       <Card title="Resource limits" subtitle={`Hard maximum: ${project.limits.maxMemoryMb} MB and ${project.limits.maxCpu} cores.`}>
-        <div className="field-row">
+        <div className="limits-row">
           <label className="field">
             <span className="field__label">Memory (MB)</span>
             <input className="input" value={memory} inputMode="numeric" onChange={(event) => setMemory(event.target.value)} />
@@ -595,10 +595,12 @@ function SettingsTab({ project, onChanged }: { project: Project; onChanged: () =
             <input className="input" value={cpu} inputMode="decimal" onChange={(event) => setCpu(event.target.value)} />
           </label>
         </div>
-        <Button
-          variant="primary"
-          disabled={saving}
-          onClick={() => {
+        <div className="card__actions">
+          <span className="card__actions__note">Applies the next time the container is created.</span>
+          <Button
+            variant="primary"
+            disabled={saving}
+            onClick={() => {
             setSaving(true);
             void updateProject(project.id, {
               memoryLimitMb: Number(memory),
@@ -617,17 +619,21 @@ function SettingsTab({ project, onChanged }: { project: Project; onChanged: () =
               .finally(() => setSaving(false));
           }}
         >
-          Save limits
-        </Button>
+            Save limits
+          </Button>
+        </div>
       </Card>
 
       <Card title="Danger zone" className="card--danger">
-        <p className="muted">
-          Deleting removes the container, the images built for this project and its deployment history.
-        </p>
-        <Button variant="danger" onClick={() => setDeleteOpen(true)}>
-          Delete project
-        </Button>
+        <div className="danger-row">
+          <p className="muted">
+            Deleting removes the container, the images built for this project and its deployment history. This cannot
+            be undone.
+          </p>
+          <Button variant="danger" onClick={() => setDeleteOpen(true)}>
+            Delete project
+          </Button>
+        </div>
       </Card>
 
       <Modal

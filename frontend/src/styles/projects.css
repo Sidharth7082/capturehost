@@ -101,6 +101,64 @@
   grid-template-columns: 1fr;
 }
 
+/* Project settings: two columns that actually line up, with the danger zone as a
+   full-width footer strip instead of a tall card of empty space. */
+.settings-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  align-items: start;
+  margin-top: var(--space-4);
+}
+
+/* Cards in a row should end at the same line. */
+.settings-grid > .card {
+  height: 100%;
+}
+
+.settings-grid > .card--danger {
+  grid-column: 1 / -1;
+  height: auto;
+}
+
+/* Two short numeric fields should not stretch across a 500 px card. */
+.limits-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 160px));
+  gap: var(--space-3);
+}
+
+/* The save action belongs at the bottom of the card, on its own line. */
+.card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.card__actions__note {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* Text on the left, the one destructive button on the right. */
+.danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.danger-row .muted {
+  margin: 0;
+  max-width: 62ch;
+}
+
 .kv {
   display: grid;
   grid-template-columns: 130px 1fr;
@@ -280,6 +338,8 @@
 
 .copy-row .input {
   flex: 1;
+  /* Without this a long URL refuses to shrink and clips at the card edge. */
+  min-width: 0;
 }
 
 .webhook {
@@ -306,8 +366,8 @@
 
 .field__hint {
   font-size: var(--text-xs);
-  color: var(--text-faint);
-  line-height: 1.5;
+  color: var(--text-muted);
+  line-height: 1.55;
 }
 
 .field__error {
@@ -376,6 +436,7 @@
 
 @media (max-width: 640px) {
   /* The tab strip scrolls on its own; nothing else may widen the page. */
+  .settings-grid,
   .detail-grid,
   .log-viewer,
   .detail-header__meta {
