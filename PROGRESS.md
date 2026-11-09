@@ -1478,6 +1478,33 @@ outside world yet:
   repository → token revoked → 401. Audit trail shows `agent.hermes-demo` rows and
   contains no token material.
 
+### Session 27 — Dockerfiles for repositories that have none
+
+- `services/dockerfileSuggestion.ts`: reads a clone's file names and manifests
+  (package.json, requirements.txt, pyproject.toml, Procfile, go.mod, composer.json,
+  Gemfile, Cargo.toml, index.html) and returns a Dockerfile for one of eight stacks,
+  always bound to the project's container port, with `notes` saying what it guessed.
+  Pure function over a fingerprint; no model, nothing from the repository is executed
+  or interpreted as instructions.
+- `services/dockerfileOverride.ts`: writes a stored Dockerfile into a clone — only
+  when the repository has nothing at that path (`repo-wins`), never outside the clone
+  (`unsafe-path` for `../` or absolute paths).
+- Migration 012: `dockerfile_override`, `dockerfile_override_source`,
+  `dockerfile_override_at` on `projects`; `db/dockerfile.repo.ts` for get/set/clear.
+- Routes: `POST /api/projects/:id/dockerfile/suggest` (clones, 10/min),
+  `GET|PUT|DELETE /api/projects/:id/dockerfile`, all audited. Agent tools
+  `suggest_dockerfile` (read tokens) and `set_project_dockerfile` (deploy tokens).
+- Frontend: `DockerfileCard` on the project Overview — suggest, edit, save, remove.
+- Pipeline logs which of the three happened: generated file used, repository file
+  used, or the stored path refused as unsafe.
+- Found and fixed while testing live: a trailing comment on `USER root` is parsed as
+  part of the account name and the container refuses to start; `USER` now gets its
+  own line. Added the `start-refused` diagnosis rule for exactly that failure.
+- Verified live on project 7 (`animeflv-api-backend`, Flask + gunicorn): suggested
+  python:flask, saved, deployed → deployment #38 live, container
+  `capturehost-animeflv-api-backend-38` on 127.0.0.1:8100, `GET /health` → 200.
+  Suite 499 passed / 2 skipped; build 126 modules.
+
 ## 10. How to resume (for the next agent)
 
 1. Read this file completely.

@@ -296,6 +296,8 @@ token unlocks **a fixed list of verbs**, not a shell:
 | `get_project` | one project plus its last 10 deployments, each with a diagnosis |
 | `read_deployment` | one deployment: full log and diagnosis |
 | `deploy_project` | queue a deploy (only for a token created with "allow this token to start deployments") |
+| `suggest_dockerfile` | read the repository and propose a Dockerfile (read-only) |
+| `set_project_dockerfile` | store that Dockerfile for this project (deploy tokens only) |
 | `run_doctor` | the same health report the dashboard shows |
 
 Create one in **Settings → Agent access**. The token is displayed **once**; only a
@@ -313,6 +315,20 @@ What a token **cannot** do, by construction: read the host filesystem, run a com
 call Docker directly, read `.env` values, or manage databases. Deploying a project
 runs its repository's code on this machine — a token that may deploy is a token that
 can run code, so issue those deliberately.
+
+### Repositories without a Dockerfile
+
+CaptureHost can write one. `Suggest a Dockerfile` on a project's Overview tab (or the
+` suggest_dockerfile` tool) shallow-clones the repository, reads its manifests and
+returns a Dockerfile for review — Flask/FastAPI/Django, Node, Next, static, Go, PHP,
+Ruby and Rust are recognised, and the file always binds the project's container port.
+Saving it stores the text in the database; **the repository's own Dockerfile always
+wins**, so a stored one is only written into a clone when the repository has nothing
+at the configured path.
+
+A port below 1024 (the default 80, for instance) needs root inside the container to
+bind. The generated file says so and runs as root; set the container port to 8000 and
+generate again for an unprivileged image.
 
 ### Diagnoses
 
