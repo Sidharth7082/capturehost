@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
-import { POSTGRES_VERSIONS, createDatabase, fetchDatabases, type DatabaseInfo } from '../api/databases';
+import {
+  DUMP_ACCEPT,
+  POSTGRES_VERSIONS,
+  cloneDatabase,
+  createDatabase,
+  fetchDatabases,
+  importNewDatabase,
+  type DatabaseInfo,
+} from '../api/databases';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { DataTable, type Column } from '../components/DataTable';
@@ -138,6 +146,7 @@ export function Databases(): JSX.Element {
 
       <NewDatabaseModal
         open={open}
+        sources={rows}
         onClose={() => setOpen(false)}
         onCreated={(database, password) => {
           setOpen(false);
@@ -153,25 +162,48 @@ export function Databases(): JSX.Element {
 
 function NewDatabaseModal({
   open,
+  sources,
   onClose,
   onCreated,
 }: {
   open: boolean;
+  sources: DatabaseInfo[];
   onClose: () => void;
   onCreated: (database: DatabaseInfo, password: string) => void;
 }): JSX.Element {
+  const [mode, setMode] = useState<'empty' | 'clone' | 'upload'>('empty');
   const [name, setName] = useState('');
   const [version, setVersion] = useState<string>(POSTGRES_VERSIONS[0]);
   const [published, setPublished] = useState(false);
+  const [sourceId, setSourceId] = useState<string>('');
+  const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
-  const valid = /^[a-z][a-z0-9-]{1,28}[a-z0-9]$/.test(name);
+  const validName = /^[a-z][a-z0-9-]{1,28}[a-z0-9]$/.test(name);
+  const cloneSource = sources.find((entry) => String(entry.id) === sourceId) ?? null;
+  const canSubmit =
+    validName && !working && (mode === 'clone' ? cloneSource !== null : mode === 'upload' ? file !== null : true);
 
   const submit = async (): Promise<void> => {
     setWorking(true);
     setError(null);
     try {
+      if (mode === 'clone' && cloneSource) {
+        const result = await cloneDatabase(cloneSource.id, name);
+        setName('');
+        onCreated(result.database, result.password);
+        return;
+      }
+
+      if (mode === 'upload' && file) {
+        const result = await importNewDatabase(file, { name, version });
+        setName('');
+        setFile(null);
+        onCreated(result.database, result.password);
+        return;
+      }
+
       const result = await createDatabase({ name, version, published });
       setName('');
       onCreated(result.database, result.password);
@@ -192,13 +224,34 @@ function NewDatabaseModal({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" disabled={!valid || working} onClick={() => void submit()}>
-            {working ? 'Creating…' : 'Create database'}
+          <Button variant="primary" disabled={!canSubmit} onClick={() => void submit()}>
+            {working ? 'Working…' : mode === 'upload' ? 'Upload and import' : mode === 'clone' ? 'Clone database' : 'Create database'}
           </Button>
         </div>
       }
     >
       <div className="form">
+        <div className="repo-tabs" role="tablist" aria-label="How to start the database">
+          {(
+            [
+              ['empty', 'Empty'],
+              ['clone', 'Clone existing'],
+              ['upload', 'Upload a dump'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={mode === value}
+              className={`repo-tabs__tab${mode === value ? ' repo-tabs__tab--active' : ''}`}
+              onClick={() => setMode(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <label className="field">
           <span className="field__label">Name</span>
           <input
@@ -213,27 +266,65 @@ function NewDatabaseModal({
           </span>
         </label>
 
-        <label className="field">
-          <span className="field__label">Postgres version</span>
-          <select className="input" value={version} onChange={(event) => setVersion(event.target.value)}>
-            {POSTGRES_VERSIONS.map((tag) => (
-              <option key={tag} value={tag}>
-                {tag}
-              </option>
-            ))}
-          </select>
-          <span className="field__hint">Pinned tags only — there is no “latest”.</span>
-        </label>
-
-        <label className="db-checkbox">
-          <input type="checkbox" checked={published} onChange={(event) => setPublished(event.target.checked)} />
-          <span>
-            <span className="db-checkbox__label">Publish on 127.0.0.1 for local tools</span>
+        {mode === 'clone' ? (
+          <label className="field">
+            <span className="field__label">Copy data from</span>
+            <select className="input" value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
+              <option value="">Choose a database…</option>
+              {sources.map((entry) => (
+                <option key={entry.id} value={String(entry.id)} disabled={entry.status !== 'running'}>
+                  {entry.name} {entry.status !== 'running' ? '(stopped)' : ''}
+                </option>
+              ))}
+            </select>
             <span className="field__hint">
-              Loopback only, never 0.0.0.0. Apps reach the database by container name without this.
+              The source must be running. It is only read — the copy lands in a brand new database.
             </span>
-          </span>
-        </label>
+          </label>
+        ) : null}
+
+        {mode === 'upload' ? (
+          <>
+            <label className="field">
+              <span className="field__label">Dump file</span>
+              <input
+                className="input"
+                type="file"
+                accept={DUMP_ACCEPT}
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              />
+              <span className="field__hint">
+                A <code>pg_dump</code> archive (<code>-Fc</code> or <code>-Ft</code>), or a plain{' '}
+                <code>.sql</code> file. Gzipped is fine. The format is detected from the contents, not the
+                name.
+              </span>
+            </label>
+
+            <label className="field">
+              <span className="field__label">Postgres version</span>
+              <select className="input" value={version} onChange={(event) => setVersion(event.target.value)}>
+                {POSTGRES_VERSIONS.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
+                  </option>
+                ))}
+              </select>
+              <span className="field__hint">
+                Pick a version at least as new as the one the dump came from.
+              </span>
+            </label>
+          </>
+        ) : (
+          <label className="db-checkbox">
+            <input type="checkbox" checked={published} onChange={(event) => setPublished(event.target.checked)} />
+            <span>
+              <span className="db-checkbox__label">Publish on 127.0.0.1 for local tools</span>
+              <span className="field__hint">
+                Loopback only, never 0.0.0.0. Apps reach the database by container name without this.
+              </span>
+            </span>
+          </label>
+        )}
 
         {error ? <div className="form-error">{error}</div> : null}
       </div>

@@ -1,3 +1,6 @@
+import { createGunzip } from 'node:zlib';
+import { createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync, unlinkSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -70,6 +73,34 @@ export interface DatabaseDto {
   internalPort: number;
   internalUrl: string;
   links: Array<{ projectId: number; projectName: string; envKey: string }>;
+}
+
+/** How an uploaded (or internal) dump must be replayed. */
+export type DumpFormat = 'custom' | 'sql';
+
+/**
+ * Classifies a dump without trusting the file name.
+ *
+ *   PGDMP        -> pg_dump custom format            -> pg_restore
+ *   ustar (257)  -> pg_dump tar format               -> pg_restore
+ *   printable    -> plain SQL                        -> psql -f
+ * Anything else is refused: we will not hand an unknown binary to a database.
+ */
+export function detectDumpFormat(data: Buffer): DumpFormat {
+  if (data.subarray(0, 5).toString('latin1') === 'PGDMP') return 'custom';
+  if (data.subarray(257, 262).toString('latin1') === 'ustar') return 'custom';
+
+  const head = data.subarray(0, 512);
+  let printable = 0;
+  for (const byte of head) {
+    if (byte === 9 || byte === 10 || byte === 13 || (byte >= 32 && byte < 127)) printable += 1;
+  }
+  if (printable / Math.max(1, head.length) > 0.95) return 'sql';
+
+  throw AppError.badRequest(
+    'That does not look like a pg_dump archive or a plain SQL file (accepted: .dump/.tar from pg_dump -Fc/-Ft, .sql from psql)',
+    'unknown_dump_format',
+  );
 }
 
 export interface DatabaseBackupDto {
@@ -803,6 +834,200 @@ export class DatabaseService {
         dedupeKey: `database.backup_stale:${row.id}`,
       });
     }
+  }
+
+  // --------------------------------------------------------- clone / import
+
+  /**
+   * Copies one database into a brand new one.
+   *
+   * A dump is taken through the usual helper container and fed straight into a
+   * restore helper for the new database — no file is written, and the source is
+   * only ever read.
+   */
+  async cloneDatabase(
+    sourceId: number,
+    newName: string,
+    ctx: { actor: string; ip?: string | null },
+  ): Promise<{ database: DatabaseDto; password: string }> {
+    const source = this.requireDatabase(sourceId);
+    if (source.status !== 'running') {
+      throw AppError.conflict('Start the source database before cloning it', 'database_stopped');
+    }
+
+    const dump = await this.dumpToBuffer(source);
+    const created = await this.create({ name: newName, version: source.version, published: false, ctx });
+    try {
+      await this.restoreBuffer(created.database.id, dump, 'custom');
+    } catch (error) {
+      // A half-restored database is worse than none: remove what we made.
+      await this.discard(created.database.id);
+      throw error;
+    }
+
+    this.audit('database.clone', source.name, ctx, `-> ${newName}`);
+    return { database: this.get(created.database.id), password: created.password };
+  }
+
+  /**
+   * Imports an uploaded dump into a **new** database.
+   *
+   * `dump` is a file already streamed to disk by the route (the route owns the
+   * upload limit and deletes the file); this method only reads it.
+   */
+  async importDump(
+    input: {
+      name: string;
+      version: string;
+      filePath: string;
+      fileName: string;
+      format: DumpFormat;
+      ctx: { actor: string; ip?: string | null };
+    },
+  ): Promise<{ database: DatabaseDto; password: string }> {
+    const data = readFileSync(input.filePath);
+    if (data.length === 0) throw AppError.badRequest('That file is empty', 'import_empty');
+
+    const created = await this.create({ name: input.name, version: input.version, published: false, ctx: input.ctx });
+    try {
+      await this.restoreBuffer(created.database.id, data, input.format);
+    } catch (error) {
+      await this.discard(created.database.id);
+      throw error;
+    }
+
+    this.audit(
+      'database.import',
+      input.name,
+      input.ctx,
+      `${input.fileName} (${input.format}, ${data.length} bytes)`,
+    );
+    return { database: this.get(created.database.id), password: created.password };
+  }
+
+  /**
+   * Imports into an existing database. The caller has already proved it is empty;
+   * this only replays the archive and records what happened.
+   */
+  async importIntoExisting(
+    id: number,
+    data: Buffer,
+    format: DumpFormat,
+    ctx: { actor: string; ip?: string | null; fileName: string; bytes: number },
+  ): Promise<DatabaseDto> {
+    const row = this.requireDatabase(id);
+    await this.restoreBuffer(id, data, format);
+    this.audit('database.import', row.name, ctx, `${ctx.fileName} (${format}, ${ctx.bytes} bytes, into an existing database)`);
+    return this.get(id);
+  }
+
+  /** Tables the database currently has, or 0 when it cannot be read. */
+  async userTableCount(id: number): Promise<number> {
+    try {
+      return (await this.tables(id)).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** pg_dump straight into memory, with no file and no encryption at rest. */
+  private async dumpToBuffer(row: DatabaseRow): Promise<Buffer> {
+    let helper: Docker.Container | null = null;
+    try {
+      helper = await this.client.createContainer({
+        name: `${row.container_name}-clone-${this.now()}`,
+        Image: databaseImage(row.version),
+        Entrypoint: ['pg_dump'],
+        Cmd: ['-Fc', '-h', row.container_name, '-p', String(DATABASE_CONTAINER_PORT), '-U', row.username, '-d', row.db_name],
+        Env: [`PGPASSWORD=${this.password(row)}`, 'PGCONNECT_TIMEOUT=10'],
+        Labels: { 'capturehost.managed': 'true', 'capturehost.database.clone': String(row.id), ...this.extraLabels },
+        Tty: false,
+        AttachStdout: true,
+        AttachStderr: true,
+        HostConfig: {
+          NetworkMode: this.config.deploy.network,
+          Privileged: false,
+          CapDrop: ['ALL'],
+          Devices: [],
+          Binds: [],
+          AutoRemove: false,
+          PidsLimit: 64,
+        },
+      } as never);
+
+      const stream = (await helper.attach({ stream: true, stdout: true, stderr: true })) as NodeJS.ReadableStream;
+      const collected = collectFrames(stream);
+      await helper.start();
+      const { stdout, stderr } = await collected;
+      const exit = (await helper.wait()) as { StatusCode: number };
+
+      if (exit.StatusCode !== 0 || stdout.length === 0) {
+        throw new Error(stderr.toString('utf8').trim().slice(0, 300) || `pg_dump exited ${exit.StatusCode}`);
+      }
+      return stdout;
+    } finally {
+      await helper?.remove({ force: true, v: false }).catch(() => undefined);
+    }
+  }
+
+  /** pg_restore (custom/tar) or psql (plain SQL) inside a helper, archive on disk. */
+  private async restoreBuffer(targetId: number, data: Buffer, format: DumpFormat): Promise<void> {
+    const target = this.requireDatabase(targetId);
+    await this.waitUntilReady(target, 90_000);
+
+    const common = [
+      '-h', target.container_name,
+      '-p', String(DATABASE_CONTAINER_PORT),
+      '-U', target.username,
+    ];
+
+    let helper: Docker.Container | null = null;
+    try {
+      helper = await this.client.createContainer({
+        name: `${target.container_name}-import-${this.now()}`,
+        Image: databaseImage(target.version),
+        Entrypoint: format === 'sql' ? ['psql'] : ['pg_restore'],
+        Cmd:
+          format === 'sql'
+            ? [...common, '-d', target.db_name, '-v', 'ON_ERROR_STOP=on', '-f', '/tmp/dump.archive']
+            : [...common, '-d', target.db_name, '--no-owner', '--no-privileges', '--exit-on-error', '/tmp/dump.archive'],
+        Env: [`PGPASSWORD=${this.password(target)}`, 'PGCONNECT_TIMEOUT=10'],
+        Labels: { 'capturehost.managed': 'true', 'capturehost.database.restore': String(target.id), ...this.extraLabels },
+        Tty: false,
+        AttachStdout: true,
+        AttachStderr: true,
+        HostConfig: {
+          NetworkMode: this.config.deploy.network,
+          Privileged: false,
+          CapDrop: ['ALL'],
+          Devices: [],
+          Binds: [],
+          AutoRemove: false,
+          PidsLimit: 64,
+        },
+      } as never);
+
+      const stream = await helper.attach({ stream: true, stdout: true, stderr: true });
+      const collected = collectFrames(stream as NodeJS.ReadableStream);
+      await helper.putArchive(makeTarFile('dump.archive', data), { path: '/tmp' });
+      await helper.start();
+
+      const { stderr } = await collected;
+      const exit = (await helper.wait()) as { StatusCode: number };
+      if (exit.StatusCode !== 0) {
+        throw new Error(stderr.toString('utf8').trim().slice(0, 300) || `${format} restore exited ${exit.StatusCode}`);
+      }
+    } finally {
+      await helper?.remove({ force: true, v: false }).catch(() => undefined);
+    }
+  }
+
+  /** Removes a database we created for an import/clone that then failed. */
+  private async discard(id: number): Promise<void> {
+    const row = getDatabase(this.db, id);
+    if (!row) return;
+    await this.client.getContainer(row.container_name).remove({ force: true }).catch(() => undefined);
+    deleteDatabaseRow(this.db, id);
   }
 
   // ---------------------------------------------------------------- helpers

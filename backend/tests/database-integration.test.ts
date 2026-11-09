@@ -1,10 +1,11 @@
-import { existsSync, rmSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, rmSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Docker from 'dockerode';
 import { afterAll, describe, expect, it } from 'vitest';
-import { DatabaseService } from '../src/services/databases.js';
+import { DatabaseService, detectDumpFormat } from '../src/services/databases.js';
+import { decryptString } from '../src/crypto/secretbox.js';
 import { createTestDb, silentLogger, testConfig } from './helpers.js';
 
 /**
@@ -167,4 +168,65 @@ describe.skipIf(!enabled)('database round trip against real Postgres', () => {
     });
     expect(source.rows[0]).toEqual({ n: 2 });
   }, 240_000);
+
+  it('clones a running database, and imports a decrypted snapshot into a new one', async () => {
+    const base = `chimp-${suffix || Date.now().toString(36)}`.slice(0, 28);
+
+    const source = await service.create({ name: base, version: '16-alpine', published: false, ctx: { actor: 'it' } });
+    createdNames.push(source.database.containerName);
+    createdVolumes.push(source.database.volume);
+
+    let ready = false;
+    for (let attempt = 0; attempt < 40 && !ready; attempt += 1) {
+      try {
+        await service.query(source.database.id, 'select 1', { actor: 'it' });
+        ready = true;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+    }
+    expect(ready).toBe(true);
+    await service.query(source.database.id, 'create table notes (id serial primary key, body text)', { actor: 'it' });
+    await service.query(source.database.id, "insert into notes (body) values ('from-source')", { actor: 'it' });
+
+    // ---- clone ----
+    const clone = await service.cloneDatabase(source.database.id, `${base}-c`.slice(0, 30), { actor: 'it' });
+    createdNames.push(clone.database.containerName);
+    createdVolumes.push(clone.database.volume);
+
+    const cloneRows = await service.query(clone.database.id, 'select body from notes', { actor: 'it' });
+    expect(cloneRows.rows).toEqual([{ body: 'from-source' }]);
+
+    // ---- import from a real dump file, decrypted the way an operator would ----
+    const backup = await service.createBackup(source.database.id, { actor: 'it' });
+    const encrypted = readFileSync(join(dir, String(source.database.id), backup.fileName), 'utf8');
+    const plain = Buffer.from(decryptString(encrypted, config.encryptionKey, 'database.backup'), 'base64');
+    expect(detectDumpFormat(plain)).toBe('custom');
+
+    const dumpPath = join(dir, 'uploaded.dump');
+    writeFileSync(dumpPath, plain);
+
+    const imported = await service.importDump({
+      name: `${base}-i`.slice(0, 30),
+      version: '16-alpine',
+      filePath: dumpPath,
+      fileName: 'uploaded.dump',
+      format: 'custom',
+      ctx: { actor: 'it' },
+    });
+    createdNames.push(imported.database.containerName);
+    createdVolumes.push(imported.database.volume);
+
+    let importedRows: Array<Record<string, unknown>> = [];
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      try {
+        importedRows = (await service.query(imported.database.id, 'select body from notes', { actor: 'it' })).rows;
+        if (importedRows.length > 0) break;
+      } catch {
+        /* still starting */
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    expect(importedRows).toEqual([{ body: 'from-source' }]);
+  }, 300_000);
 });

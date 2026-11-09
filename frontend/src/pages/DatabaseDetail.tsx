@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { fetchProjects, type Project } from '../api/projects';
 import {
+  DUMP_ACCEPT,
   createBackup,
   databaseAction,
   deleteBackup,
@@ -13,6 +14,7 @@ import {
   fetchMetrics,
   fetchRows,
   fetchTables,
+  importExistingDatabase,
   linkDatabase,
   restoreBackup,
   runQuery,
@@ -526,6 +528,8 @@ function BackupsTab({
         )}
       </Card>
 
+      <ImportCard database={database} />
+
       <Card title="Restore" subtitle="Always into a NEW database — the source is never overwritten">
         <label className="field">
           <span className="field__label">New database name</span>
@@ -553,6 +557,74 @@ function BackupsTab({
         </Button>
       </Card>
     </div>
+  );
+}
+
+// -------------------------------------------------------------------- import
+
+/**
+ * Import a dump into **this** database.
+ *
+ * Deliberately narrow: it refuses unless the database has no tables and the name is
+ * typed, because the rest of the app never overwrites data in place. Anything else
+ * goes through "New database → Upload a dump".
+ */
+function ImportCard({ database }: { database: DatabaseInfo }): JSX.Element {
+  const [file, setFile] = useState<File | null>(null);
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Card title="Import a dump" subtitle="Into this database — only while it is empty">
+      <p className="db-note">
+        Accepts a <code>pg_dump</code> archive (<code>-Fc</code> or <code>-Ft</code>) or a plain{' '}
+        <code>.sql</code> file, gzipped or not; the format is detected from the contents. It is refused if
+        this database already has tables — import into a new database instead.
+      </p>
+
+      <label className="field">
+        <span className="field__label">Dump file</span>
+        <input
+          className="input"
+          type="file"
+          accept={DUMP_ACCEPT}
+          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+        />
+      </label>
+
+      <label className="field">
+        <span className="field__label">Type {database.name} to confirm</span>
+        <input className="input" value={confirm} placeholder={database.name} onChange={(event) => setConfirm(event.target.value)} />
+      </label>
+
+      {error ? <div className="form-error">{error}</div> : null}
+      {done ? <div className="form-notice">{done}</div> : null}
+
+      <Button
+        variant="primary"
+        disabled={busy || file === null || confirm !== database.name}
+        onClick={() => {
+          if (!file) return;
+          setBusy(true);
+          setError(null);
+          setDone(null);
+          void importExistingDatabase(database.id, file, confirm)
+            .then(() => {
+              setDone('Imported.');
+              setFile(null);
+              setConfirm('');
+            })
+            .catch((caught: unknown) =>
+              setError(caught instanceof ApiError ? caught.message : 'The import failed'),
+            )
+            .finally(() => setBusy(false));
+        }}
+      >
+        {busy ? 'Importing…' : 'Import into this database'}
+      </Button>
+    </Card>
   );
 }
 

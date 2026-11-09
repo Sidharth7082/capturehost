@@ -61,6 +61,14 @@ export interface QueryResult {
 
 export const POSTGRES_VERSIONS = ['17-alpine', '16-alpine'] as const;
 
+/** File types the import accepts; the server classifies by content, not by this. */
+export const DUMP_ACCEPT = '.sql,.dump,.tar,.gz,.psql';
+
+export interface CloneResult {
+  database: DatabaseInfo;
+  password: string;
+}
+
 export function fetchDatabases(): Promise<{ databases: DatabaseInfo[] }> {
   return apiFetch<{ databases: DatabaseInfo[] }>('/api/databases');
 }
@@ -166,4 +174,39 @@ export function restoreBackup(
       body: JSON.stringify({ name }),
     },
   );
+}
+
+/** Copies an existing database into a new one. */
+export function cloneDatabase(id: number, name: string): Promise<CloneResult> {
+  return apiFetch<CloneResult>(`/api/databases/${id}/clone`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
+/**
+ * Uploads a dump and imports it into a NEW database.
+ *
+ * The file is the raw body (`application/octet-stream`) so the backend can stream
+ * it to disk instead of buffering it in memory; the name travels in a header
+ * because the body is the file.
+ */
+export function importNewDatabase(file: File, input: { name: string; version: string }): Promise<CloneResult> {
+  const params = new URLSearchParams({ name: input.name, version: input.version });
+  return apiFetch<CloneResult>(`/api/databases/import?${params.toString()}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/octet-stream', 'x-upload-name': file.name },
+    body: file,
+  });
+}
+
+/** Imports into an existing database — refused unless it has no tables. */
+export function importExistingDatabase(id: number, file: File, confirm: string): Promise<{ database: DatabaseInfo }> {
+  const params = new URLSearchParams({ confirm });
+  return apiFetch<{ database: DatabaseInfo }>(`/api/databases/${id}/import?${params.toString()}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/octet-stream', 'x-upload-name': file.name },
+    body: file,
+  });
 }

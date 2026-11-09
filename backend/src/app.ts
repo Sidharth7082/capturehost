@@ -19,7 +19,7 @@ import { createMetricsHub, registerMetricsRoutes } from './routes/metrics.js';
 import { registerProjectRoutes } from './routes/projects.js';
 import { registerWebhookRoutes } from './routes/webhook.js';
 import { registerGithubRoutes } from './routes/github.js';
-import { registerDatabaseRoutes } from './routes/databases.js';
+import { registerDatabaseRoutes, registerUploadParser } from './routes/databases.js';
 import { DatabaseService, demuxBuffer } from './services/databases.js';
 import { createServer, type AppInstance } from './server.js';
 import { AuthService } from './services/auth.js';
@@ -281,11 +281,20 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   });
 
   registerHealthRoutes(app, { db, version: APP_VERSION, startedAt });
+  // Raw dump uploads get their own content-type and body limit; nothing that takes
+  // JSON is widened by this.
+  registerUploadParser(app, {
+    uploadDir: config.databases.importDir,
+    maxUploadBytes: config.databases.maxUploadBytes,
+  });
+
   registerDatabaseRoutes(app, {
     db,
     databases,
     limiter: databaseLimiter,
     trustedAddresses: config.trustProxyAddresses,
+    uploadDir: config.databases.importDir,
+    maxUploadBytes: config.databases.maxUploadBytes,
     readContainerLogs: async (containerName, tail) => {
       const buffer = (await docker.rawClient().getContainer(containerName).logs({
         stdout: true,

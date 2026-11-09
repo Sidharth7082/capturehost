@@ -306,6 +306,34 @@ The four capabilities are not optional: without them `docker-entrypoint.sh` cann
 `chown` its data directory and the container crash-loops with
 `chown: /var/lib/postgresql/data/pgdata: Operation not permitted`.
 
+### Three ways to start a database
+
+**New database** offers:
+
+| Mode | What happens |
+|---|---|
+| **Empty** | a fresh container and an empty database |
+| **Clone existing** | `pg_dump` of a running CaptureHost database, replayed into a new one — the source is only read |
+| **Upload a dump** | a `pg_dump` archive (`-Fc` or `-Ft`) or a plain `.sql` file, gzipped or not |
+
+Uploads are the raw request body, streamed straight to
+`data/backups/imports/` and deleted in a `finally` — the file is never buffered
+in memory, so a 200 MB dump costs 200 MB of disk, not 200 MB of RSS. The floor and
+ceiling:
+
+- size cap `DATABASE_MAX_UPLOAD_BYTES` (256 MB). A gzipped file is decompressed with
+  its own cap, so a zip bomb is a `413`, not a full disk;
+- the format is decided by **content**, never by the file name — `PGDMP` or a tar
+  header goes to `pg_restore`, printable text goes to `psql -v ON_ERROR_STOP=1 -f`,
+  anything else is refused with a `400`;
+- a failed import **deletes the database it just created**, so you are never left
+  with an empty shell you have to clean up.
+
+The **Import a dump** panel on an existing database is deliberately narrow: it
+refuses unless that database has **no tables** and you type its name. Nothing in
+this app overwrites data in place — if you want to merge, import into a new
+database and link the project to it.
+
 ### Backups, and why they run in a helper container
 
 `pg_dump -Fc` runs in a short-lived container made from the same image, on the same

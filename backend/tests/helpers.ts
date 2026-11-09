@@ -120,6 +120,8 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       backupMaxAgeHours: 48,
       queryRowLimit: 200,
       queryTimeoutMs: 10_000,
+      importDir: './data/backups/imports',
+      maxUploadBytes: 268_435_456,
     },
     github: {
       apiBase: 'https://api.github.com',

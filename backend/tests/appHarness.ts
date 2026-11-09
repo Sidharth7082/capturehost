@@ -2,6 +2,7 @@ import type { AddressInfo } from 'node:net';
 import type { LightMyRequestResponse } from 'fastify';
 import { buildApp } from '../src/app.js';
 import type { GithubService } from '../src/services/github.js';
+import type { DatabaseService } from '../src/services/databases.js';
 import type { DeploymentService } from '../src/services/deployments.js';
 import type { CaddyService } from '../src/services/caddy.js';
 import { DockerService } from '../src/services/docker.js';
@@ -49,6 +50,8 @@ export async function startApp(
      * caller: route tests must never reach the network.
      */
     github?: (db: TestDb['db']) => GithubService;
+    /** Database service with a fake Docker client, built against the harness DB. */
+    databases?: (db: TestDb['db']) => DatabaseService;
   } = {},
 ): Promise<AuthedApp> {
   const testDb = createTestDb();
@@ -67,6 +70,7 @@ export async function startApp(
     ...(options.deployments ? { deploymentService: options.deployments } : {}),
     ...(options.caddy ? { caddyService: options.caddy } : {}),
     ...(options.github ? { githubService: options.github(testDb.db) } : {}),
+    ...(options.databases ? { databaseService: options.databases(testDb.db) } : {}),
   });
 
   await app.listen({ port: 0, host: '127.0.0.1' });

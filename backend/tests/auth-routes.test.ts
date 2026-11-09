@@ -78,6 +78,9 @@ const PROTECTED_ROUTES: ReadonlyArray<[string, string]> = [
   ['POST', '/api/databases/1/backups'],
   ['DELETE', '/api/databases/1/backups/db-1-2026-01-01T00-00-00-000Z.dump.chbk'],
   ['POST', '/api/databases/1/backups/db-1-2026-01-01T00-00-00-000Z.dump.chbk/restore'],
+  ['POST', '/api/databases/1/clone'],
+  ['POST', '/api/databases/import'],
+  ['POST', '/api/databases/1/import'],
   // Phase 5
   ['GET', '/api/domains'],
   ['POST', '/api/domains'],

@@ -74,6 +74,8 @@ const EnvSchema = z.object({
   DATABASE_QUERY_ROW_LIMIT: z.coerce.number().int().min(1).max(5_000).default(200),
   /** Statement timeout for the browser and the editor. */
   DATABASE_QUERY_TIMEOUT_MS: z.coerce.number().int().min(100).max(60_000).default(10_000),
+  /** Largest dump file accepted on import, in bytes. Streamed to disk, never buffered whole. */
+  DATABASE_MAX_UPLOAD_BYTES: z.coerce.number().int().min(1024).max(8_589_934_592).default(268_435_456),
 
   // ---- docker ----
   // Always the socket proxy, never a raw socket path. See docker-compose.dev.yml.
@@ -266,6 +268,9 @@ export interface AppConfig {
     backupMaxAgeHours: number;
     queryRowLimit: number;
     queryTimeoutMs: number;
+    /** Where uploaded dumps land before they are imported; deleted in a finally. */
+    importDir: string;
+    maxUploadBytes: number;
   };
 
   github: {
@@ -452,6 +457,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       backupMaxAgeHours: value.DATABASE_BACKUP_MAX_AGE_HOURS,
       queryRowLimit: value.DATABASE_QUERY_ROW_LIMIT,
       queryTimeoutMs: value.DATABASE_QUERY_TIMEOUT_MS,
+      importDir: `${value.BACKUP_DIR}/imports`,
+      maxUploadBytes: value.DATABASE_MAX_UPLOAD_BYTES,
     },
 
     github: {

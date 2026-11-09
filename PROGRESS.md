@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-09 (session 27 — Phase 7: Postgres databases, backups, data browser, SQL editor)
+Last updated: 2026-11-09 (session 28 — databases: clone an existing one, or upload a dump)
 
 ---
 
@@ -651,6 +651,25 @@ way a container is created is the deploy pipeline, which owns the safety policy.
 94. **`waitUntilReady` matters.** `docker start` returns when the process exists,
     which is seconds before initdb finishes. Create waits up to 45 s, restore up to
     90 s, both by polling a `select 1` through the `pg` driver.
+
+### Session 28 (clone and import)
+95. **Three ways to start a database, one rule about overwriting.** Empty, clone an
+    existing CaptureHost database, or upload a dump. Cloning and importing both land
+    in a **new** database; importing into an existing one is refused unless it has
+    zero tables and the name is typed. The invariant "nothing overwrites data in
+    place" survives the feature.
+96. **Uploads stream to disk, they are not buffered.** `application/octet-stream`
+    gets its own content-type parser (a limit that widens nothing that takes JSON),
+    which pipes the request body to `data/backups/imports/<uuid>.upload`, counts
+    bytes as they arrive and aborts at `DATABASE_MAX_UPLOAD_BYTES` (256 MB). A
+    gzipped upload is decompressed server-side with its own byte cap, so a zip bomb
+    is a 413.
+97. **The format is decided by content.** `PGDMP` or a tar header → `pg_restore`;
+    printable text → `psql -v ON_ERROR_STOP=1 -f`; anything else → 400. The file
+    name is only a label (and audited after `basename()`), never a routing decision.
+98. **A failed import removes the database it created.** `discard()` removes the
+    container and the row, so a broken archive does not leave an empty "broken" shell
+    behind for the operator to find later.
 
 ## 8. Known gaps / deliberate deferrals
 
@@ -1412,6 +1431,28 @@ outside world yet:
   capabilities (crash loop) and the `pg_dump` default unix socket (no `-h`).
 - Gates: backend 447 tests / 25 files, launcher 21, `tsc` clean both packages, build
   122 modules, `npm audit` 0.
+
+### 2026-11-09 — session 28 (clone + import a dump)
+- `DatabaseService.cloneDatabase` (dump to memory → restore into a new database),
+  `importDump` (file → new database), `importIntoExisting` (empty database only),
+  `detectDumpFormat`, and `discard()` for a failed half-restore.
+- Routes: `POST /api/databases/:id/clone`, `POST /api/databases/import?name=&version=`,
+  `POST /api/databases/:id/import?confirm=`. The raw upload parser lives in
+  `routes/databases.ts` (`registerUploadParser`) and is registered in `app.ts`.
+  Config: `DATABASE_MAX_UPLOAD_BYTES`, `databases.importDir`.
+- UI: the New database modal is three-way (**Empty / Clone existing / Upload a
+  dump**) with a clone-source picker and a file input; the detail page gained an
+  **Import a dump** card (name-typed, empty-database-only).
+- Tests: `database-import.test.ts` (7 — format detection incl. tar and a refusal,
+  clone, sql vs custom entrypoint, failed import leaves no row, empty file) and
+  `database-import-routes.test.ts` (5 — CSRF on clone, 404, bad magic is a 400,
+  a real SQL upload through Fastify with the temp file removed, confirm mismatch).
+  The all-routes 401 loop gained the three new paths.
+- **Real evidence again:** the opt-in integration suite now also clones a database
+  and imports a decrypted snapshot into a third one, reading the row back each time —
+  2 tests passed in 13.9 s against real `postgres:16-alpine`.
+- Gates: 458 tests pass / 1 skipped, 28 files, `tsc` clean both, build 122 modules,
+  audit 0.
 
 ## 10. How to resume (for the next agent)
 
