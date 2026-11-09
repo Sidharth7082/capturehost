@@ -231,8 +231,9 @@ app.listen(8080, '0.0.0.0');
 
 - repository `https://github.com/Sidharth7082/capturehost-test-app`, branch `main`
 - container port 80, Dockerfile at the root (a static nginx page)
-- hostname `hello.capturehost.localhost`, reached at
-  `http://hello.capturehost.localhost:8080`
+- hostnames: `hello.capturehost.localhost` locally
+  (`http://hello.capturehost.localhost:8080`) and `demo.captureordie.online`
+  publicly (`https://demo.captureordie.online`, through the Cloudflare Tunnel)
 - Overview shows the current `127.0.0.1:<port>`; Deployments lists its history,
   including the failed builds from tuning the Dockerfile.
 

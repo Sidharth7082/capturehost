@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-09 (session 24 — tunnel mode switched on; two exposure-check corrections)
+Last updated: 2026-11-09 (session 25 — public path live: tunnel routes, wildcard DNS, first public hostname)
 
 ---
 
@@ -570,6 +570,23 @@ way a container is created is the deploy pipeline, which owns the safety policy.
     API) and nothing else; routes on the dashboard port are out of scope, because
     `:8090 → :8787` is exactly what the dashboard is for. A blind
     "no route may reach 8787" rule would have warned about the dashboard forever.
+
+### Session 25 (the public path, live)
+80. **Cloudflare was configured through the API with a token the operator issued
+    for the purpose** — never the account password, never the dashboard. Token
+    scopes as issued: Tunnel:Edit initially, DNS:Read only; the wildcard record
+    needed Zone·DNS·Edit, which the operator granted when the first attempt
+    returned `10000 Authentication error`. What was written: the tunnel's remote
+    ingress (version 0 → 1) and one wildcard CNAME. Nothing else — the apex A
+    record (Hostinger) and `www` were left exactly as they were.
+81. **The first public hostname was attached from a local CLI, not the dashboard.**
+    `POST /api/domains` requires an admin session; the dashboard needs the admin
+    password, which is never typed by the agent, and the browser tool refuses
+    `localhost` URLs outright. The attachment therefore ran through the app's own
+    code path from a one-off `tsx` script — `validateHostname` → `createDomain` →
+    `writeAudit` (actor `local-cli (hermes)`) → `caddy.sync('domain-add')` — so the
+    row, the audit trail and the route are the same ones the route handler would
+    have produced. The script was deleted afterwards; it is not a second API.
 
 ## 8. Known gaps / deliberate deferrals
 
@@ -1216,6 +1233,32 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   fail at DNS resolution (`000`), not with an HTTP status — they will answer 404 once
   the routes exist.
 - Gates: 380 backend tests / 20 files, `tsc` clean both, build 112 modules, audit 0.
+
+### 2026-11-09 — session 25 (public path live)
+- **Tunnel ingress** set via `PUT /accounts/{acct}/cfd_tunnel/{id}/configurations`:
+  `hooks.captureordie.online` → `http://127.0.0.1:8081`, `*.captureordie.online` →
+  `http://127.0.0.1:8080`, catch-all `http_status:404`. Stored version 1, source
+  `cloudflare`; tunnel `capturehost` (`412ae24c-…`) healthy with 4 connections.
+- **DNS**: `CNAME *.captureordie.online → 412ae24c-….cfargotunnel.com`, proxied,
+  id `32a06ef3f0ecd353ac6a9951d07128b9`. Zone state after: apex `A 2.57.91.91`
+  (unchanged), `www` CNAME → apex (unchanged), wildcard → tunnel (new).
+- **`demo.captureordie.online` attached** to project `hello-capturehost` (domain
+  id 6), audit actor `local-cli (hermes)`.
+- **Verified end to end, over the public internet, not just locally:**
+  `https://demo.captureordie.online/` → **200** serving "CaptureHost test app";
+  TLS `CN=captureordie.online`, Let's Encrypt, 2026-11-08 → 2027-02-06;
+  `https://demo.…/api/health`, `/api/domains`, `/ws/metrics` → **404** each;
+  `https://hooks.…/` and `/api/health` → 404; `POST https://hooks.…/api/webhooks/github/1`
+  → **401** (reached Fastify, rejected for a missing GitHub signature);
+  `https://anything.…` → 404 via Caddy's catch-all. Local
+  `hello.capturehost.localhost` still 200; the domain monitor recorded a check
+  for the new hostname with no error and 0 consecutive failures.
+- **Local resolver negative cache** (NXDOMAIN from before the record existed) made
+  plain `curl`/the browser on this laptop still claim the hostnames do not exist
+  for up to the SOA TTL; authoritative DoH answers were correct throughout. Fix:
+  `sudo resolvectl flush-caches`.
+- Operationally: the domain was attached while the backend was running, and the
+  reconciler pushed the route on the spot (`added: 1`) — no restart needed.
 
 ## 10. How to resume (for the next agent)
 
