@@ -21,6 +21,7 @@ import { registerWebhookRoutes } from './routes/webhook.js';
 import { registerGithubRoutes } from './routes/github.js';
 import { registerDatabaseRoutes, registerUploadParser } from './routes/databases.js';
 import { registerAgentRoutes } from './routes/agent.js';
+import { registerDockerfileRoutes } from './routes/dockerfile.js';
 import { DatabaseService, demuxBuffer } from './services/databases.js';
 import { createServer, type AppInstance } from './server.js';
 import { AuthService } from './services/auth.js';
@@ -188,6 +189,8 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   // Agent tokens: a fixed verb list, not a shell. See routes/agent.ts.
   const agentAccess = options.agentAccessService ?? new AgentAccessService({ db, logger });
   const agentLimiter = new SessionRateLimiter(60);
+  // Suggestions clone a repository, so they get a much smaller budget than reads.
+  const dockerfileLimiter = new SessionRateLimiter(10);
 
   // Databases talk to their own containers and to Postgres directly (no exec).
   const databases = options.databaseService ?? new DatabaseService({
@@ -301,9 +304,13 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     access: agentAccess,
     deployments,
     doctor,
+    config,
+    logger,
     limiter: agentLimiter,
     trustedAddresses: config.trustProxyAddresses,
   });
+
+  registerDockerfileRoutes(app, { db, config, logger, limiter: dockerfileLimiter });
 
   registerDatabaseRoutes(app, {
     db,

@@ -24,6 +24,8 @@ import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { DataTable, type Column } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
+import { DockerfileCard } from './projects/DockerfileCard';
+import './projects/DockerfileCard.css';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { Skeleton } from '../components/Skeleton';
@@ -203,10 +205,17 @@ export function ProjectDetail(): JSX.Element {
       <Tabs items={TABS} value={tab} onChange={setTab} label="Project sections" />
 
       {tab === 'overview' ? (
-        <OverviewTab project={project} deployments={deployments} onOpenLog={(deploymentId) => {
-          setSelectedDeploymentId(deploymentId);
-          setTab('logs');
-        }} />
+        <OverviewTab
+          project={project}
+          deployments={deployments}
+          onOpenLog={(deploymentId) => {
+            setSelectedDeploymentId(deploymentId);
+            setTab('logs');
+          }}
+          onDeploy={() => {
+            void runAction('Deploy started', () => deployProject(project.id), { focusNewest: true });
+          }}
+        />
       ) : null}
 
       {tab === 'deployments' ? (
@@ -236,10 +245,12 @@ function OverviewTab({
   project,
   deployments,
   onOpenLog,
+  onDeploy,
 }: {
   project: Project;
   deployments: Deployment[];
   onOpenLog: (deploymentId: number) => void;
+  onDeploy: () => void;
 }): JSX.Element {
   const latest = deployments[0] ?? null;
   const [domains, setDomains] = useState<(ProjectDomain & { url: string })[]>([]);
@@ -314,6 +325,8 @@ function OverviewTab({
           />
         )}
       </Card>
+
+      <DockerfileCard projectId={project.id} dockerfilePath={project.dockerfilePath} onDeploy={onDeploy} />
     </div>
   );
 }

@@ -23,6 +23,8 @@ import { decryptString } from '../crypto/secretbox.js';
 import type { Logger } from '../logger.js';
 import { AppError } from '../utils/errors.js';
 import { assertDockerfilePresent, cloneRepository, removeWorkingTree } from './git.js';
+import { getDockerfileOverride } from '../db/dockerfile.repo.js';
+import { applyDockerfileOverride } from './dockerfileOverride.js';
 import { buildContainerCreateOptions, clampResources } from './containerPolicy.js';
 
 const run = promisify(execFile);
@@ -299,6 +301,23 @@ export class DeploymentService {
 
       this.log(entry.deploymentId, `Cloned commit ${clone.shortSha} (${(clone.sizeBytes / 1024 / 1024).toFixed(1)} MB)`);
       updateDeployment(this.db, entry.deploymentId, { commitSha: clone.commitSha });
+
+      // A repository with no Dockerfile can still deploy when CaptureHost holds one
+      // generated for it. The repository's own file always wins.
+      const override = getDockerfileOverride(this.db, project.id);
+      if (override) {
+        const outcome = applyDockerfileOverride(clone.path, project.dockerfile_path, override.content);
+        if (outcome === 'applied') {
+          this.log(
+            entry.deploymentId,
+            `Using the ${override.source} Dockerfile stored in CaptureHost at ${project.dockerfile_path} — the repository has none`,
+          );
+        } else if (outcome === 'unsafe-path') {
+          this.log(entry.deploymentId, `Ignored the stored Dockerfile: "${project.dockerfile_path}" is not a safe path`);
+        } else {
+          this.log(entry.deploymentId, `The repository has its own ${project.dockerfile_path} — using that instead`);
+        }
+      }
 
       assertDockerfilePresent(clone.path, project.dockerfile_path);
 

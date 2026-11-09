@@ -7,6 +7,12 @@ import type { AppInstance } from '../server.js';
 import type { AgentAccessService, AgentIdentity } from '../services/agentAccess.js';
 import type { DeploymentService } from '../services/deployments.js';
 import { diagnoseDeployment } from '../services/diagnosis.js';
+import { suggestForProject } from './dockerfile.js';
+import type { Suggestion } from '../services/dockerfileSuggestion.js';
+import { getDockerfileOverride, setDockerfileOverride } from '../db/dockerfile.repo.js';
+import { writeAudit } from '../db/audit.repo.js';
+import type { AppConfig } from '../config.js';
+import type { Logger } from '../logger.js';
 import type { DoctorService } from '../services/doctor.js';
 import { AppError } from '../utils/errors.js';
 import { resolveClientIp } from '../utils/clientIp.js';
@@ -28,6 +34,15 @@ import type { SessionRateLimiter } from '../utils/rateLimit.js';
 
 const IdParam = z.object({ id: z.coerce.number().int().positive() });
 
+/** Both shapes the suggestion tool can return; annotated so the union type-checks. */
+interface DockerfileToolResult {
+  suggestion: Suggestion | null;
+  files: string[];
+  reason?: string;
+  commit?: string;
+  existingOverride?: { source: string; updatedAt: number } | null;
+}
+
 export interface AgentRoutesDeps {
   db: Db;
   access: AgentAccessService;
@@ -36,6 +51,8 @@ export interface AgentRoutesDeps {
   /** Budget per token, so one runaway loop cannot fill the audit log. */
   limiter: SessionRateLimiter;
   trustedAddresses: readonly string[];
+  config: AppConfig;
+  logger: Logger;
 }
 
 type Ctx = { socket: { remoteAddress?: string }; headers: Record<string, string | string[] | undefined> };
@@ -216,6 +233,84 @@ export function registerAgentRoutes(app: AppInstance, deps: AgentRoutesDeps): vo
 
         const deploymentId = deps.deployments.enqueueDeploy(project, 'manual');
         return { target: project.name, detail: `deployment #${deploymentId}`, result: { queued: true, deploymentId } };
+      },
+      { needsDeploy: true },
+    ),
+  );
+
+  /**
+   * Reads only: clone the repository, look at its manifests, return a Dockerfile.
+   * Nothing is saved — an agent may propose, but a deploy-capable token decides.
+   */
+  app.post('/api/agent/tools/projects/:id/suggest-dockerfile', async (request) =>
+    runTool<DockerfileToolResult>('suggest_dockerfile', request, async () => {
+      const { id } = IdParam.parse(request.params);
+      const project = getProject(deps.db, id);
+      if (!project) throw AppError.notFound('Project not found');
+
+      const already = getDockerfileOverride(deps.db, project.id);
+      const outcome = await suggestForProject({ config: deps.config, logger: deps.logger }, project);
+
+      if (!outcome.suggestion) {
+        return {
+          target: project.name,
+          detail: 'no recognised stack',
+          result: {
+            suggestion: null,
+            files: outcome.files,
+            reason:
+              'No stack CaptureHost recognises (no package.json, requirements.txt, pyproject.toml, go.mod, composer.json, Gemfile, Cargo.toml or index.html at the top level).',
+          },
+        };
+      }
+
+      return {
+        target: project.name,
+        detail: outcome.suggestion.stack,
+        result: {
+          suggestion: outcome.suggestion,
+          commit: outcome.commit,
+          files: outcome.files,
+          existingOverride: already ? { source: already.source, updatedAt: already.updatedAt } : null,
+        },
+      };
+    }),
+  );
+
+  /**
+   * Saves a Dockerfile for this project. Needs a deploy-capable token: it changes
+   * what gets built. The repository's own Dockerfile still wins at build time.
+   */
+  app.put('/api/agent/tools/projects/:id/dockerfile', async (request) =>
+    runTool(
+      'set_project_dockerfile',
+      request,
+      async () => {
+        const { id } = IdParam.parse(request.params);
+        const project = getProject(deps.db, id);
+        if (!project) throw AppError.notFound('Project not found');
+
+        const body = z
+          .object({ content: z.string().min(1).max(65_536), source: z.enum(['generated', 'edited']).default('generated') })
+          .parse(request.body ?? {});
+        if (!/\bFROM\b/i.test(body.content)) {
+          throw AppError.badRequest('A Dockerfile needs at least one FROM instruction', 'invalid_dockerfile');
+        }
+
+        setDockerfileOverride(deps.db, project.id, body.content, body.source);
+        writeAudit(deps.db, {
+          action: 'project.dockerfile_saved',
+          actor: 'agent',
+          target: project.name,
+          detail: `${body.source}, ${body.content.split('\n').length} lines`,
+          ip: clientIp(request),
+        });
+
+        return {
+          target: project.name,
+          detail: body.source,
+          result: { saved: true, dockerfilePath: project.dockerfile_path, lines: body.content.split('\n').length },
+        };
       },
       { needsDeploy: true },
     ),
