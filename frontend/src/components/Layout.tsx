@@ -80,15 +80,15 @@ export function Layout(): JSX.Element {
 
           <nav className="sidebar__nav">
             <p className="sidebar__section">Host</p>
-            {NAV_PAGES.slice(0, 4).map((item) => (
+            {NAV_PAGES.filter((item) => item.section === 'host').map((item) => (
               <NavItem key={item.path} item={item} />
             ))}
             <p className="sidebar__section">Network</p>
-            {NAV_PAGES.slice(4, 7).map((item) => (
+            {NAV_PAGES.filter((item) => item.section === 'network').map((item) => (
               <NavItem key={item.path} item={item} />
             ))}
             <p className="sidebar__section">System</p>
-            {NAV_PAGES.slice(7).map((item) => (
+            {NAV_PAGES.filter((item) => item.section === 'system').map((item) => (
               <NavItem key={item.path} item={item} />
             ))}
           </nav>

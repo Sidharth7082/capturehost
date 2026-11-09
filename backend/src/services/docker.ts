@@ -522,6 +522,16 @@ export class DockerService {
       return { protected: true, reason: 'labelled capturehost.protected=true' };
     }
 
+    // Database containers are owned by the Databases page, which enforces the
+    // volume/volume-delete rules. Turning one off from a generic list is how you
+    // lose the one piece of state that lives on disk.
+    if (info.labels['capturehost.database'] !== undefined) {
+      return {
+        protected: true,
+        reason: 'a CaptureHost database — manage it from the Databases page',
+      };
+    }
+
     const normalisedName = info.name.replace(/^\//, '').toLowerCase();
     const match = this.config.docker.protectedContainers.find((entry) => {
       const needle = entry.toLowerCase();

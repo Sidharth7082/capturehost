@@ -12,6 +12,8 @@ export interface NavPage {
   icon: IconName;
   ready: boolean;
   phase: number;
+  /** Sidebar group. Explicit, so re-ordering the list cannot move items between groups. */
+  section: 'host' | 'network' | 'system';
 }
 
 export const NAV_PAGES: readonly NavPage[] = [
@@ -22,6 +24,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'dashboard',
     ready: true,
     phase: 1,
+    section: 'host',
   },
   {
     path: '/projects',
@@ -30,6 +33,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'projects',
     ready: true,
     phase: 4,
+    section: 'host',
   },
   {
     path: '/containers',
@@ -38,6 +42,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'containers',
     ready: true,
     phase: 3,
+    section: 'host',
   },
   {
     path: '/domains',
@@ -46,6 +51,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'domains',
     ready: true,
     phase: 5,
+    section: 'network',
   },
   {
     path: '/backups',
@@ -54,6 +60,16 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'databases',
     ready: true,
     phase: 6,
+    section: 'system',
+  },
+  {
+    path: '/databases',
+    label: 'Databases',
+    subtitle: 'Postgres containers with volumes, backups and links',
+    icon: 'databases',
+    ready: true,
+    phase: 7,
+    section: 'network',
   },
   {
     path: '/notifications',
@@ -62,6 +78,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'bell',
     ready: true,
     phase: 6,
+    section: 'system',
   },
   {
     path: '/security',
@@ -70,6 +87,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'check',
     ready: true,
     phase: 6,
+    section: 'system',
   },
   {
     path: '/logs',
@@ -78,6 +96,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'logs',
     ready: true,
     phase: 2,
+    section: 'system',
   },
   {
     path: '/settings',
@@ -86,6 +105,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'settings',
     ready: true,
     phase: 2,
+    section: 'system',
   },
 ];
 
@@ -107,6 +127,7 @@ export function findPage(pathname: string): NavPage {
       icon: 'alert',
       ready: true,
       phase: 0,
+      section: 'system' as const,
     };
   }
 

@@ -19,6 +19,8 @@ import { createMetricsHub, registerMetricsRoutes } from './routes/metrics.js';
 import { registerProjectRoutes } from './routes/projects.js';
 import { registerWebhookRoutes } from './routes/webhook.js';
 import { registerGithubRoutes } from './routes/github.js';
+import { registerDatabaseRoutes } from './routes/databases.js';
+import { DatabaseService, demuxBuffer } from './services/databases.js';
 import { createServer, type AppInstance } from './server.js';
 import { AuthService } from './services/auth.js';
 import { BackupService } from './services/backup.js';
@@ -58,6 +60,8 @@ export interface BuildAppOptions {
   caddyService?: CaddyService;
   /** Injected in tests: a GitHub client that never leaves the process. */
   githubService?: GithubService;
+  /** Injected in tests: a database service with a fake Docker client and pg. */
+  databaseService?: DatabaseService;
   /** Injected in tests: stubs for the Phase 6 services. */
   notificationService?: NotificationService;
   backupService?: BackupService;
@@ -177,6 +181,16 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   // the feed while it is happening.
   const notifications =
     options.notificationService ?? new NotificationService({ db, config, logger });
+  // Databases talk to their own containers and to Postgres directly (no exec).
+  const databases = options.databaseService ?? new DatabaseService({
+    db,
+    config,
+    logger,
+    client: docker.rawClient(),
+    notifications,
+  });
+  const databaseLimiter = new SessionRateLimiter(20);
+
   // GitHub is read-only by design: the service only ever issues GETs, and the
   // token it holds is write-only for everything else in the app.
   const github = options.githubService ?? new GithubService({ db, config, logger, notifications });
@@ -267,6 +281,22 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   });
 
   registerHealthRoutes(app, { db, version: APP_VERSION, startedAt });
+  registerDatabaseRoutes(app, {
+    db,
+    databases,
+    limiter: databaseLimiter,
+    trustedAddresses: config.trustProxyAddresses,
+    readContainerLogs: async (containerName, tail) => {
+      const buffer = (await docker.rawClient().getContainer(containerName).logs({
+        stdout: true,
+        stderr: true,
+        tail,
+        follow: false,
+      })) as unknown as Buffer;
+      return demuxBuffer(Buffer.isBuffer(buffer) ? buffer : Buffer.from(String(buffer)));
+    },
+  });
+
   registerGithubRoutes(app, {
     db,
     github,
@@ -327,6 +357,7 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   registerErrorHandler(app, logger);
 
   let sessionPurgeTimer: NodeJS.Timeout | null = null;
+  let databaseBackupTimer: NodeJS.Timeout | null = null;
   let healthTimer: NodeJS.Timeout | null = null;
 
   app.addHook('onReady', async () => {
@@ -367,6 +398,23 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     caddy.start();
 
     retention.start();
+
+    // Scheduled database dumps. 0 disables the scheduler entirely; the manual
+    // "back up now" button still works.
+    if (config.databases.backupIntervalMs > 0) {
+      databaseBackupTimer = setInterval(() => {
+        void databases.runScheduledBackups().catch((error: unknown) => {
+          logger.warn({ err: error }, 'scheduled database backups failed');
+        });
+      }, config.databases.backupIntervalMs);
+      databaseBackupTimer.unref?.();
+
+      // One pass shortly after boot, so a laptop that is off overnight still
+      // produces a fresh snapshot and the staleness alert gets a chance to clear.
+      setTimeout(() => {
+        void databases.checkStaleBackups().catch(() => undefined);
+      }, 60_000).unref?.();
+    }
     containerWatcher.start();
 
     // Scheduled backups, with a notification when one fails.
@@ -422,6 +470,7 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
     statsPoller.stop();
     caddy.stop();
     retention.stop();
+    if (databaseBackupTimer) clearInterval(databaseBackupTimer);
     backups.stop();
     containerWatcher.stop();
     if (healthTimer) clearInterval(healthTimer);

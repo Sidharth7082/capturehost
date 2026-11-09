@@ -8,6 +8,8 @@ import { diskUsageFor } from './diskMonitor.js';
 import type { AppConfig } from '../config.js';
 import type { Db } from '../db/connection.js';
 import { getAdmin } from '../db/auth.repo.js';
+import { listDatabases } from '../db/databases.repo.js';
+import { DATABASE_VOLUME_PREFIX } from './databasePolicy.js';
 import { getIntegration } from '../db/integrations.repo.js';
 import { latestBackup } from '../db/ops.repo.js';
 import type { Logger } from '../logger.js';
@@ -535,6 +537,78 @@ export class DoctorService {
                     detail: `connected as ${github.login}, token expires in ${days} day(s)`,
                   },
       );
+    }
+
+    // ----------------------------------------------------------- databases
+    // Three questions about Phase 7, in the order that matters: is every volume
+    // one of ours, is any database reachable off-loopback, and is anything overdue
+    // for a backup.
+    {
+      const rows = listDatabases(this.db);
+      const now = Date.now();
+      const maxAgeMs = this.config.databases.backupMaxAgeHours * 3_600_000;
+
+      const badVolumes = rows.filter((row) => !row.volume.startsWith(DATABASE_VOLUME_PREFIX) || row.volume !== `${DATABASE_VOLUME_PREFIX}${row.id}`);
+      const badPorts = rows.filter(
+        (row) =>
+          row.port !== null &&
+          (row.port < this.config.deploy.portRangeStart || row.port > this.config.deploy.portRangeEnd),
+      );
+      const stale = rows.filter(
+        (row) => row.status === 'running' && now - (row.last_backup_at ?? row.created_at) > maxAgeMs,
+      );
+
+      if (rows.length === 0) {
+        push({
+          id: 'databases-safe',
+          title: 'Database containers stay inside the policy',
+          status: 'skip',
+          detail: 'no databases yet',
+        });
+      } else if (badVolumes.length > 0 || badPorts.length > 0) {
+        push({
+          id: 'databases-safe',
+          title: 'Database containers stay inside the policy',
+          status: 'fail',
+          detail: [
+            badVolumes.length > 0
+              ? `volume not derived from the id: ${badVolumes.map((row) => `${row.name}=${row.volume}`).join(', ')}`
+              : null,
+            badPorts.length > 0
+              ? `port outside ${this.config.deploy.portRangeStart}-${this.config.deploy.portRangeEnd}: ${badPorts.map((row) => `${row.name}=${row.port}`).join(', ')}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join('; '),
+          fix: 'Recreate the row through the Databases page; volumes and ports are never taken from user input',
+        });
+      } else {
+        push({
+          id: 'databases-safe',
+          title: 'Database containers stay inside the policy',
+          status: 'pass',
+          detail: `${rows.length} database(s), every volume ${DATABASE_VOLUME_PREFIX}<id>, published ports inside the app range on loopback`,
+        });
+      }
+
+      if (rows.length > 0) {
+        push(
+          stale.length === 0
+            ? {
+                id: 'databases-backups',
+                title: 'Every running database has a recent backup',
+                status: 'pass',
+                detail: `warn after ${this.config.databases.backupMaxAgeHours}h; keep ${this.config.databases.backupKeep} per database`,
+              }
+            : {
+                id: 'databases-backups',
+                title: 'Every running database has a recent backup',
+                status: 'warn',
+                detail: `${stale.map((row) => row.name).join(', ')} — last backup older than ${this.config.databases.backupMaxAgeHours}h`,
+                fix: 'Databases → the database → Backups → Back up now (or check why the scheduler did not run)',
+              },
+        );
+      }
     }
 
     // -------------------------------------------------------------- secrets

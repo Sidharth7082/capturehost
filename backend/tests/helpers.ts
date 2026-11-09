@@ -113,6 +113,14 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       attemptsDays: 7,
       notificationsDays: 30,
     },
+    databases: {
+      dir: './data/backups/databases',
+      backupIntervalMs: 21_600_000,
+      backupKeep: 14,
+      backupMaxAgeHours: 48,
+      queryRowLimit: 200,
+      queryTimeoutMs: 10_000,
+    },
     github: {
       apiBase: 'https://api.github.com',
       timeoutMs: 2000,

@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-09 (session 26 — GitHub integration: pick repositories, read-only token)
+Last updated: 2026-11-09 (session 27 — Phase 7: Postgres databases, backups, data browser, SQL editor)
 
 ---
 
@@ -617,6 +617,40 @@ way a container is created is the deploy pipeline, which owns the safety policy.
     through the existing askpass helper. `tests/github-clone-token.test.ts` scans the
     deployment log, the audit log, the build arguments and the container config for
     the fixture token and asserts it appears in none of them.
+
+### Session 27 (Phase 7 — databases)
+89. **One mount exception, derived from the id.** Applications mount nothing; a
+    database mounts exactly `capturehost-db-<its own id>:/var/lib/postgresql/data`.
+    `buildDatabaseCreateOptions` never takes a path from input and
+    `assertSafeDatabaseOptions` re-checks the finished payload — host binds, the
+    docker socket, `:ro`/`:rw`, a second mount, another database's volume,
+    privileged mode, devices and host namespaces all still throw. 18 policy tests.
+90. **The proxy flags did not change.** `VOLUMES: 0`, `EXEC: 0`, `NETWORKS: 0` stay:
+    Docker creates a named volume implicitly at container create, so nothing needed
+    widening. The cost is that this process cannot delete volumes either — delete
+    leaves `capturehost-db-<id>` behind, and the UI/response names the exact
+    `docker volume rm` to finish the job.
+91. **Postgres needs four capabilities, and that is a real finding.** With
+    `CapDrop: ['ALL']` and no `CapAdd` the container crash-looped:
+    `chown: /var/lib/postgresql/data/pgdata: Operation not permitted`. The image's
+    entrypoint runs as root, chowns its data dir and `/var/run/postgresql`, then
+    drops to uid 999 — that is `CHOWN`, `FOWNER` (chmod), `SETUID`, `SETGID`.
+    Nothing broader is allowed, and none of it escapes the container.
+92. **Backups are `pg_dump -Fc` in a helper container, not a host binary.** There is
+    no `pg_dump` on this machine and no sudo to install one. The helper joins
+    `capturehost-apps`, runs with `Entrypoint: ['pg_dump']` (the image's entrypoint
+    prints to stdout, which is where the archive comes from), dials the database by
+    container name on `-h/-p`, and the archive leaves on its stdout. Encrypted with
+    `BACKUP_ENCRYPTION_KEY` before it touches disk.
+93. **Restore never overwrites.** A restore creates a new database, waits until it
+    accepts connections, uploads the archive as a one-file tar (`putArchive`) and
+    runs `pg_restore ... /tmp/dump.archive`. The stdin route was tried first and
+    abandoned: docker's stdio attach does not reliably deliver EOF, and `pg_restore`
+    then blocks forever — observed as a helper container still running after four
+    minutes with no output.
+94. **`waitUntilReady` matters.** `docker start` returns when the process exists,
+    which is seconds before initdb finishes. Create waits up to 45 s, restore up to
+    90 s, both by polling a `select 1` through the `pg` driver.
 
 ## 8. Known gaps / deliberate deferrals
 
@@ -1343,6 +1377,41 @@ outside world yet:
   for real phones.
 - Gates: 413 backend tests / 23 files, launcher 21, `tsc` clean both packages, build
   117 modules, `npm audit` 0 in both packages.
+
+### 2026-11-09 — session 27 (Phase 7: databases)
+- Migration `010_databases.sql` (databases + project_databases), `db/databases.repo.ts`,
+  `services/databasePolicy.ts`, `services/databases.ts`, `routes/databases.ts`,
+  wiring in `app.ts` (service, routes, 6-hourly backup scheduler, log reader).
+  New deps: `pg` + `@types/pg`.
+- 19 routes, all session-required, writes CSRF-protected by the global hook, 20
+  actions/minute per session: list, create, get, start, stop, restart, delete
+  (name-confirmed, stopped and unlinked only), metrics, logs, tables, rows, query,
+  link, unlink, backups list/create/delete/restore.
+- **Database containers are protected in the generic Containers page** — the label
+  `capturehost.database` makes `isProtected()` refuse start/stop/restart/remove
+  there, so the volume-owning containers can only be touched from the Databases
+  page.
+- Doctor: `databases-safe` (volume derived from the id, published ports inside the
+  app range) and `databases-backups` (nothing running without a recent snapshot).
+  Live: "no databases yet".
+- Frontend: `api/databases.ts`, a real **Databases** page (list, empty state, New
+  database modal with version allowlist and the loopback-publish toggle), a
+  **DatabaseDetail** page with Overview (status, size, connections, connection panel
+  with copy buttons, one-time password panel), Data (table browser + SQL editor),
+  Backups (create/delete/restore), Linked projects, Logs and Danger zone. Sidebar
+  grouping became explicit (`section: host|network|system`) instead of index slices;
+  Databases sits under **Network**.
+- **Real evidence, not mocks:** `DATABASE_INTEGRATION=1 npx vitest run
+  tests/database-integration.test.ts` starts a real `postgres:16-alpine`, writes two
+  rows, dumps them, restores into a second database and reads `hello`/`world` back —
+  1 test passed in ~5.6 s, containers and volumes removed afterwards. Containers
+  created by that suite carry `capturehost.test=true`.
+- Tests: policy 18, service 15 (fakes for Docker + pg), integration 1 (opt-in), plus
+  19 new entries in the all-routes 401 loop.
+- Two bugs the integration test caught that no mock would have: the missing
+  capabilities (crash loop) and the `pg_dump` default unix socket (no `-h`).
+- Gates: backend 447 tests / 25 files, launcher 21, `tsc` clean both packages, build
+  122 modules, `npm audit` 0.
 
 ## 10. How to resume (for the next agent)
 

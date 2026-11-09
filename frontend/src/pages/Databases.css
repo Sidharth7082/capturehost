@@ -1,0 +1,31 @@
+/* Databases list — matches the Projects page rhythm. */
+
+.db-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.db-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.db-muted {
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+
+.db-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.db-checkbox__label {
+  display: block;
+  font-weight: var(--weight-medium);
+}

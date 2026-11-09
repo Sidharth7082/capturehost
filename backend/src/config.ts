@@ -63,6 +63,18 @@ const EnvSchema = z.object({
   /** Warn (notification + doctor) this many days before the token expires. */
   GITHUB_TOKEN_WARNING_DAYS: z.coerce.number().int().min(1).max(365).default(14),
 
+  // ---- databases (Phase 7) ----
+  /** How often the scheduler dumps every running database. 0 disables it. */
+  DATABASE_BACKUP_INTERVAL_MS: z.coerce.number().int().min(0).max(86_400_000).default(6 * 3_600_000),
+  /** Files kept per database; the oldest are pruned after each backup. */
+  DATABASE_BACKUP_KEEP: z.coerce.number().int().min(1).max(365).default(14),
+  /** A database with no successful backup in this long raises a notification. */
+  DATABASE_BACKUP_MAX_AGE_HOURS: z.coerce.number().int().min(1).max(8760).default(48),
+  /** Rows returned by the table browser / SQL editor at most. */
+  DATABASE_QUERY_ROW_LIMIT: z.coerce.number().int().min(1).max(5_000).default(200),
+  /** Statement timeout for the browser and the editor. */
+  DATABASE_QUERY_TIMEOUT_MS: z.coerce.number().int().min(100).max(60_000).default(10_000),
+
   // ---- docker ----
   // Always the socket proxy, never a raw socket path. See docker-compose.dev.yml.
   DOCKER_HOST_URL: z.string().url().default('http://127.0.0.1:2375'),
@@ -246,6 +258,16 @@ export interface AppConfig {
     notificationsDays: number;
   };
 
+  databases: {
+    /** Dumps live under the backups directory, one folder per database. */
+    dir: string;
+    backupIntervalMs: number;
+    backupKeep: number;
+    backupMaxAgeHours: number;
+    queryRowLimit: number;
+    queryTimeoutMs: number;
+  };
+
   github: {
     /** Fixed, not configurable per request: api.github.com over HTTPS. */
     apiBase: string;
@@ -421,6 +443,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       deliveriesDays: value.RETENTION_DELIVERIES_DAYS,
       attemptsDays: value.RETENTION_ATTEMPTS_DAYS,
       notificationsDays: value.RETENTION_NOTIFICATIONS_DAYS,
+    },
+
+    databases: {
+      dir: `${value.BACKUP_DIR}/databases`,
+      backupIntervalMs: value.DATABASE_BACKUP_INTERVAL_MS,
+      backupKeep: value.DATABASE_BACKUP_KEEP,
+      backupMaxAgeHours: value.DATABASE_BACKUP_MAX_AGE_HOURS,
+      queryRowLimit: value.DATABASE_QUERY_ROW_LIMIT,
+      queryTimeoutMs: value.DATABASE_QUERY_TIMEOUT_MS,
     },
 
     github: {

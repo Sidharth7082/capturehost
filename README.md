@@ -279,6 +279,97 @@ cd ~/capturehost/backend && node scripts/integration-deploy.mjs
 Rollback re-runs the previous successful image without rebuilding. Images are
 tagged `capturehost/<slug>:<short-sha>` and pruned to `DEPLOY_KEEP_IMAGES` (3).
 
+## Databases (Postgres)
+
+Create a Postgres container from the dashboard, link it to a project, browse its
+data, back it up and restore a snapshot. One container per database, data on a
+**named volume only**, and nothing else on this machine changes.
+
+### What it creates, and the one mount it may have
+
+| Setting | Value |
+|---|---|
+| Image | `postgres:17-alpine` or `postgres:16-alpine` — pinned tags, no `latest` |
+| Data | named volume `capturehost-db-<id>` → `/var/lib/postgresql/data` |
+| Network | `capturehost-apps`, reachable by container name (`capturehost-db-<id>:5432`) |
+| Published port | optional, **`127.0.0.1` only**, from `CONTAINER_PORT_RANGE_*` |
+| Limits | 512 MB / 0.5 CPU by default, same clamps and ceilings as apps |
+| Capabilities | `CHOWN`, `FOWNER`, `SETUID`, `SETGID` and nothing else |
+
+The container policy refuses every mount for applications. A database gets exactly
+one exception — a named volume derived from **its own id**, at the image's data
+path — enforced in `services/databasePolicy.ts` and re-validated on the finished
+payload. Host paths, `docker.sock`, `:ro`/`:rw` suffixes, a second mount, a
+different volume, privileged mode, devices and host namespaces still throw.
+
+The four capabilities are not optional: without them `docker-entrypoint.sh` cannot
+`chown` its data directory and the container crash-loops with
+`chown: /var/lib/postgresql/data/pgdata: Operation not permitted`.
+
+### Backups, and why they run in a helper container
+
+`pg_dump -Fc` runs in a short-lived container made from the same image, on the same
+network, with the archive arriving on its **stdout**. No `exec`, no `docker cp`, no
+published port, no host binary (there is no `pg_dump` on this machine). The archive
+is encrypted with `BACKUP_ENCRYPTION_KEY` before it touches disk, and a restore
+always lands in a **new** database — `pg_restore` reads a file uploaded into a fresh
+helper, never the source.
+
+- retention: `DATABASE_BACKUP_KEEP` files per database (14), oldest pruned after
+  each backup;
+- schedule: `DATABASE_BACKUP_INTERVAL_MS` (6h, `0` disables), plus a manual
+  **Back up now**;
+- a running database with no snapshot for `DATABASE_BACKUP_MAX_AGE_HOURS` (48)
+  raises a notification, and the doctor reports it.
+
+### Linking a project
+
+**Databases → a database → Linked projects → Link** writes `DATABASE_URL` (with the
+password) into the project's encrypted env vars. A running container keeps its old
+environment, so the project has to be **redeployed** — the UI says so. Unlinking
+removes the env var, but only if it still holds the URL CaptureHost wrote.
+
+### Credentials
+
+A 32-character password is generated server-side, encrypted with
+`APP_ENCRYPTION_KEY` (context `database.password`) and shown **once**, in the
+response to the create call. After that the API returns the URL without the
+password and the UI shows a copy-from-memory panel that disappears on dismiss.
+Honest limits: `POSTGRES_PASSWORD` must be in the container's environment, so
+`docker inspect` shows it to you (and root); our API, UI, logs, audit rows and
+backup files never contain it, and tests scan all of them.
+
+### The data browser and the SQL editor
+
+The **Data** tab lists tables from `information_schema`, pages rows 200 at a time,
+and runs statements you type as the database owner through the `pg` driver over the
+container network. Every statement is audited (200 characters, never results), has
+a `DATABASE_QUERY_TIMEOUT_MS` statement timeout, returns at most
+`DATABASE_QUERY_ROW_LIMIT` rows, and is rate limited per session.
+
+### Deleting
+
+Delete is refused while the database is **running** or **linked**, and needs the
+name typed out. The container and its row are removed; the **volume is not** — the
+socket proxy runs with `VOLUMES: 0`, so this process cannot delete volumes (it also
+cannot delete yours). The response names the volume and the command to remove it.
+
+### Threat model
+
+- **The laptop is the server, and the data lives on its disk.** Losing the laptop
+  or the disk loses every database. Snapshots live under
+  `data/databases/<id>/` on the same disk: **keep a copy off the machine**
+  (`scp` the `.chbk` files, or restore into a database on another host).
+- **There is no replication, no HA and no point-in-time recovery.** A backup is a
+  snapshot from when it ran.
+- **Deleting a database does not delete its data** until you remove the volume
+  yourself. That is deliberate: the destructive step is yours.
+- **One network.** Every app can reach every database port; the credential is the
+  boundary. A compromised app gains reachability, not authentication.
+- **The SQL editor is a loaded gun.** It runs as the owner of that database, by
+  design, and it is session- and CSRF-protected. Nothing else in the app can run
+  arbitrary SQL.
+
 ## Connect GitHub (read-only)
 
 Without this, a project is created by pasting `https://github.com/owner/repo`.

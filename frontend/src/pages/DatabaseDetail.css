@@ -1,0 +1,360 @@
+/* Database detail: header, tab bar, connection panel, data browser, backups. */
+
+.db-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.db-detail__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.db-detail__back {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  text-decoration: none;
+}
+
+.db-detail__back:hover {
+  color: var(--text);
+}
+
+.db-detail__head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* Tab bar — same shape as the repo tabs, wider hit area */
+.db-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.db-tabs__tab {
+  border: 0;
+  cursor: pointer;
+  padding: 6px 14px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  background: transparent;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  transition: var(--transition);
+}
+
+.db-tabs__tab--active {
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.db-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------- connection */
+
+.db-conn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+
+.db-conn:last-of-type {
+  border-bottom: none;
+}
+
+.db-conn__label {
+  flex: 0 0 128px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.db-conn__value {
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.db-note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.db-note code {
+  font-family: var(--font-mono);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+.db-note--muted {
+  color: var(--text-faint);
+}
+
+.db-password {
+  margin-top: var(--space-2);
+  padding: 12px 14px;
+  border-radius: var(--radius-input);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+}
+
+.db-password__head {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.db-password__value {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.db-password__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.db-password__hint {
+  margin: 8px 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------------- data */
+
+.db-data {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.db-tables {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.db-tables__item {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.db-tables__item:hover {
+  background: var(--raised-hover);
+}
+
+.db-tables__item--active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.db-tables__schema {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.db-result {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.db-result table {
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  min-width: 100%;
+}
+
+.db-result th,
+.db-result td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.db-result th {
+  color: var(--text-faint);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.db-sql {
+  width: 100%;
+  min-height: 120px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  resize: vertical;
+}
+
+.db-sql__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  flex-wrap: wrap;
+}
+
+.db-pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+
+/* ---------------------------------------------------------------- backups */
+
+.db-backup__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.db-backups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.db-backups__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
+.db-backups__when {
+  flex: 1 1 auto;
+}
+
+.db-backups__size {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+/* ------------------------------------------------------------------ links */
+
+.db-links {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+}
+
+.db-links__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+  flex-wrap: wrap;
+}
+
+.db-links__row a {
+  color: var(--accent);
+}
+
+.db-links__row code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+/* ------------------------------------------------------------------- logs */
+
+.db-logs {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-input);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  max-height: 420px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* -------------------------------------------------------------- small screens */
+
+@media (max-width: 640px) {
+  /* Six tabs do not fit on a phone; wrap them instead of scrolling the bar. */
+  .db-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    border-radius: var(--radius-input);
+  }
+
+  .db-tabs__tab {
+    flex: 1 1 auto;
+  }
+
+  .db-conn {
+    flex-wrap: wrap;
+  }
+
+  .db-conn__label {
+    flex: 1 1 100%;
+  }
+
+  .db-grid {
+    grid-template-columns: 1fr;
+  }
+}

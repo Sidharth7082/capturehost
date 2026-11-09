@@ -16,6 +16,8 @@ import { NotFound } from './pages/NotFound';
 import { ProjectDetail } from './pages/ProjectDetail';
 import { Projects } from './pages/Projects';
 import { Settings } from './pages/Settings';
+import { Databases } from './pages/Databases';
+import { DatabaseDetail } from './pages/DatabaseDetail';
 
 export function App() {
   return (
@@ -39,6 +41,8 @@ export function App() {
               <Route path="projects/:id" element={<ProjectDetail />} />
               <Route path="containers" element={<Containers />} />
               <Route path="domains" element={<Domains />} />
+              <Route path="databases" element={<Databases />} />
+              <Route path="databases/:id" element={<DatabaseDetail />} />
               <Route path="backups" element={<Backups />} />
               <Route path="notifications" element={<Notifications />} />
               <Route path="security" element={<Security />} />
