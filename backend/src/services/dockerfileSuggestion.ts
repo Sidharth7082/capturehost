@@ -130,8 +130,11 @@ export function suggestDockerfile(fingerprint: Fingerprint): Suggestion | null {
   // NET_BIND_SERVICE and does not force a user, so the generated file simply says so
   // rather than producing an image that cannot bind on start.
   const lowPort = port < 1024;
+  // A trailing comment on a USER line is parsed as part of the account name —
+  // Docker then fails with "unable to find user root  # …". The explanation goes on
+  // its own line above.
   const unprivileged = lowPort
-    ? 'USER root  # the container port is below 1024; prefer 8000+ and a non-root user'
+    ? `# Running as root only because container port ${port} is below 1024.\n# Set the project container port above 1024 to use an unprivileged user.\nUSER root`
     : 'RUN useradd --create-home --uid 10001 app && chown -R app:app /app\nUSER app';
   const notes: string[] = [
     `The app is expected to listen on 0.0.0.0:${port} — that is the project's container port. Change both digits if you pick another.`,

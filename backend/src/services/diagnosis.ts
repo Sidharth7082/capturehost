@@ -91,6 +91,18 @@ const RULES: Array<{
     actionable: true,
   },
   {
+    id: 'start-refused',
+    stage: 'start',
+    match: /unable to find user|no matching entries in passwd|exec format error|executable file not found|OCI runtime create failed/i,
+    summary: 'The image built, but the container could not be started from it.',
+    hints: [
+      'A USER line naming an account that does not exist in the image fails exactly like this.',
+      'A trailing comment on a USER line counts as part of the name — put comments above it.',
+      'Leaving the USER line out runs as root: fine for a quick test, not for a public hostname.',
+    ],
+    actionable: true,
+  },
+  {
     id: 'restart-loop',
     stage: 'start',
     match: /restart loop|exited immediately|Container is in a restart loop/i,
