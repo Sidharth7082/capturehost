@@ -402,14 +402,49 @@ Enforced in `services/domains.ts` (with tests) and reported by the doctor:
    scanned, fuzzed and indexed. That is acceptable if the apps are meant to be
    public, and not acceptable for a personal tool that only you should reach — for
    that, use Tailscale instead.
-6. **2FA stops being optional.** One password would be the only barrier between the
-   internet and an admin session. The doctor warns while a public base domain is
-   configured and 2FA is off.
+6. **2FA is strongly recommended, and mandatory the day the dashboard is exposed.**
+   As configured, the dashboard is not in the tunnel: the internet cannot reach the
+   login page at all, so a password alone is a local risk, not a public one. The
+   doctor warns while a public base domain is configured and 2FA is off, because the
+   failure mode is someone later adding a route to `8090` and assuming it is protected
+   the way the rest of this document implies.
 
-### 4. Cloudflare side — commands for you to run
+### 4. Cloudflare side
 
-Nothing here needs a token pasted into the repo, and Hermes never touches your
-Cloudflare account.
+There are two ways to own the tunnel. **Pick one.** A second tunnel is not a backup,
+it is a second thing to keep in sync, and only one of them gets the DNS record. This
+install uses **A** (`/etc/cloudflared/token` exists, so it runs as a system service
+and its routes live in your Cloudflare account, not in a file on disk).
+
+#### A. Tunnel created in the Cloudflare dashboard
+
+1. Confirm the zone is **Active** on Cloudflare's Domains page — the registrar's
+   nameservers have to point at Cloudflare. If it is not Active yet, everything
+   below will appear to do nothing.
+2. **Networks → Tunnels → `capturehost` → Routes → Add route** (published
+   application), in this order:
+
+   | # | Subdomain | Domain | Service type | URL | Serves |
+   |---|---|---|---|---|---|
+   | 1 | `hooks` | captureordie.online | HTTP | `127.0.0.1:8081` | the webhook gateway, one path only |
+   | 2 | `*` | captureordie.online | HTTP | `127.0.0.1:8080` | deployed apps, one label each |
+
+   `hooks` must sit **above** the wildcard: the first matching route wins. Reorder
+   them if the page lets you.
+3. **DNS → Records.** The wildcard is often not created for you. If a `*` record is
+   missing, add it: type `CNAME`, name `*`, target
+   `<tunnel-id>.cfargotunnel.com`, **Proxy status: Proxied** (orange cloud).
+4. Off switch: `sudo systemctl stop cloudflared`.
+
+**The doctor cannot see these routes.** `tunnel-targets` reads
+`/etc/cloudflared/config.yml` and `~/.cloudflared/config.yml`; a
+dashboard-managed tunnel has neither, so the check skips and says so. The Routes
+tab is the authoritative list — review it when you change anything.
+
+#### B. Tunnel created from the CLI
+
+Only if no tunnel exists yet. Running this alongside an existing one creates a
+second, unused tunnel.
 
 ```bash
 # 1. install (sudo)
@@ -457,24 +492,22 @@ systemctl --user daemon-reload
 systemctl --user enable --now cloudflared
 ```
 
-| Priority | Public hostname | Local URL | Serves |
-|---|---|---|---|
-| 1 | `hooks.captureordie.online` | `http://127.0.0.1:8081` | `POST /api/webhooks/github/<digits>` and nothing else |
-| 2 | `*.captureordie.online` | `http://127.0.0.1:8080` | deployed apps, one label each |
-| — | anything else (apex included) | — | `404`, from the ingress fallback |
+With this variant the doctor's `tunnel-targets` check **does** verify the ingress
+file, because there is one.
 
-**DNS:** one record, `*.captureordie.online` → `CNAME <tunnel-uuid>.cfargotunnel.com`,
-**proxied** (orange cloud). `cloudflared tunnel route dns` creates it for you.
+**DNS:** one record, `*.captureordie.online` → `CNAME <tunnel-id>.cfargotunnel.com`,
+**proxied** (orange cloud). `cloudflared tunnel route dns` creates it for you;
+in the dashboard you add it by hand.
 
-**Must not be created**, in Cloudflare or in `config.yml`:
+**Must not be created**, in the dashboard routes, in DNS, or in `config.yml`:
 
-- an ingress rule pointing at `8090`, `8787`, `5173`, `2019` or `2375`;
+- a route pointing at `8090`, `8787`, `5173`, `2019` or `2375`;
 - any public hostname for the dashboard (it is loopback-only by design);
 - an `A`/`AAAA` record for the laptop's IP, or a DNS-only (grey cloud) wildcard —
   the tunnel does not work unproxied;
-- a rule for the bare apex, or a second-level wildcard
+- a route for the bare apex, or a second-level wildcard
   (`*.*.captureordie.online`) — the hostname policy refuses those anyway;
-- a second tunnel or a second path to `8787`.
+- a second tunnel, or a second path to `8787`.
 
 ### 5. What listens where
 
@@ -507,9 +540,9 @@ curl -s -o /dev/null -w '%{http_code}
 #   https://hooks.captureordie.online/api/health -> 404
 ```
 
-The doctor carries three checks for this: `public-private-upstreams` (no route
-dials a private port), `tunnel-targets` (the tunnel's ingress file, when it
-exists), and `public-domain-2fa`.
+The doctor carries three checks for this: `public-private-upstreams` (no exposed
+listener dials a private port), `tunnel-targets` (the tunnel's ingress file, when
+one exists — it skips for a dashboard-managed tunnel), and `public-domain-2fa`.
 
 ### 6. Turning public access off
 

@@ -60,6 +60,9 @@ function looksLikePlaceholder(value: string | undefined): boolean {
 export function readCloudflaredIngress(
   paths: readonly string[] = [
     process.env.CLOUDFLARED_CONFIG ?? '',
+    // `cloudflared service install` / the system package use the first path;
+    // a hand-run tunnel uses the second.
+    '/etc/cloudflared/config.yml',
     join(homedir(), '.cloudflared', 'config.yml'),
   ].filter(Boolean),
 ): { hostname: string; service: string }[] | null {
@@ -428,7 +431,9 @@ export class DoctorService {
             id: 'tunnel-targets',
             title: 'Tunnel ingress points only at intended listeners',
             status: 'skip',
-            detail: 'no ~/.cloudflared/config.yml yet — not configured, or configured elsewhere',
+            detail:
+              'no local cloudflared config found — if the tunnel and its routes were created in the Cloudflare dashboard, ' +
+              'they live in the account and cannot be checked from here; review Routes in the dashboard',
           }
         : dodgyIngress.length === 0
           ? {
@@ -476,8 +481,10 @@ export class DoctorService {
               id: 'public-domain-2fa',
               title: 'Public domain exposure has 2FA behind it',
               status: 'warn',
-              detail: `${publicBases.join(', ')} is configured but 2FA is off — one password is the only barrier`,
-              fix: 'Settings → Security → Enable 2FA before you point a tunnel at anything',
+              detail:
+                `${publicBases.join(', ')} is configured and 2FA is off. Fine while the dashboard stays on loopback ` +
+                '(the internet cannot reach the login), but one password is all that protects it if it is ever exposed',
+              fix: 'Recommended now, required before you add any tunnel route to the dashboard: Settings → Security → Enable 2FA',
             },
     );
 

@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-09 (session 23 — public access: Cloudflare Tunnel, webhook gateway, hostname rules)
+Last updated: 2026-11-09 (session 24 — tunnel mode switched on; two exposure-check corrections)
 
 ---
 
@@ -1173,6 +1173,49 @@ way a container is created is the deploy pipeline, which owns the safety policy.
   `.env.example` carries the same block as comments.
 - **Gates.** 380 backend tests / 20 files, launcher 21, `tsc` clean both packages,
   frontend build 112 modules, `npm audit` 0 vulnerabilities.
+
+### 2026-11-09 — session 24 (tunnel mode on; corrections from the operator's review)
+- **`.env` switched to tunnel mode** (the six keys were absent, so defaults were in
+  force): `CADDY_MODE=tunnel`,
+  `ALLOWED_BASE_DOMAINS=localhost,captureordie.online`,
+  `WEBHOOK_PUBLIC_HOST=hooks.captureordie.online`, `TRUST_PROXY=true`,
+  `TRUST_PROXY_ADDRESSES=127.0.0.1,::1`, `SESSION_COOKIE_SECURE=false`. `.env` stayed
+  mode 600; values were not printed. Restarted with the launcher (never a manual
+  Caddy reload — that drops the managed routes and the catch-all for up to a minute).
+- Live in tunnel mode: dashboard `:8090` 200, `hello.capturehost.localhost` 200,
+  `capturehost.localhost` on `:8080` 404, gateway `hooks.` on `:8081` 401 for the one
+  allowed path and 404 for everything else. Doctor: 15 pass, 3 warn, 0 fail, 1 skip.
+- **Hostname rules verified against the real config** (not just unit tests):
+  `demo.captureordie.online` and `hello.captureordie.online` accepted; the apex,
+  `a.b.captureordie.online` and all six reserved names refused with their specific
+  messages; `hello.capturehost.localhost` still accepted; `capturehost.localhost`
+  refused.
+- **Correction 1 — the 2FA reminder was overstated.** "One password is the only
+  barrier between the internet and an admin session" is false in this design: the
+  dashboard login is never routed through the tunnel, so the internet cannot reach
+  it. The check still warns (it is a reminder, not a failure) but now says the truth:
+  fine while the dashboard stays on loopback, and it becomes the barrier the moment
+  someone adds a route to `8090`. README threat-model point 6 rewritten the same way.
+- **Correction 2 — `tunnel-targets` can never see a dashboard-managed tunnel.** It
+  now also reads `/etc/cloudflared/config.yml` (where `cloudflared service install`
+  and the token-based service put it), and when neither file exists the skip says
+  exactly why: routes created in the Cloudflare dashboard live in the account and
+  cannot be checked locally — review the Routes tab. This install has
+  `/etc/cloudflared/token` and no config file, so the check skips by design.
+- **README §4 restructured** into the two real paths: **A** dashboard-managed tunnel
+  (this install — routes in Cloudflare, `sudo systemctl stop cloudflared` as the off
+  switch, doctor note), **B** CLI-created tunnel (config.yml, user service). Both
+  carry the same route order (hooks before the wildcard), the same DNS record and the
+  same "must not be created" list.
+- **State of the public side at the end of this session** (checked, not assumed):
+  `captureordie.online` resolves to Cloudflare (`104.21.66.37`, `172.67.155.218`) and
+  the tunnel id `412ae24c-…cfargotunnel.com` resolves to `fd10:aec2:5dae::`, so the
+  zone is Active and the tunnel exists. But `hooks.captureordie.online` and
+  `anything.captureordie.online` do **not** resolve yet: the two routes and the
+  wildcard DNS record have not been created. All three verification curls therefore
+  fail at DNS resolution (`000`), not with an HTTP status — they will answer 404 once
+  the routes exist.
+- Gates: 380 backend tests / 20 files, `tsc` clean both, build 112 modules, audit 0.
 
 ## 10. How to resume (for the next agent)
 
