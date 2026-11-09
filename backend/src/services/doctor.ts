@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { readFileSync, readdirSync, readlinkSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -46,6 +47,62 @@ const PLACEHOLDER_VALUES = new Set(['', 'change-me', 'changeme', 'example', 'tes
 function looksLikePlaceholder(value: string | undefined): boolean {
   if (!value) return true;
   return PLACEHOLDER_VALUES.has(value.trim().toLowerCase());
+}
+
+
+/**
+ * Reads the tunnel's ingress rules, if the operator has written them.
+ *
+ * `cloudflared` config lives outside the repo and does not exist on a machine
+ * that has not set the tunnel up yet, so a missing file is a skip, never a
+ * failure. Only the two fields that matter are parsed: hostname and service.
+ */
+export function readCloudflaredIngress(
+  paths: readonly string[] = [
+    process.env.CLOUDFLARED_CONFIG ?? '',
+    join(homedir(), '.cloudflared', 'config.yml'),
+  ].filter(Boolean),
+): { hostname: string; service: string }[] | null {
+  for (const path of paths) {
+    let text: string;
+    try {
+      text = readFileSync(path, 'utf8');
+    } catch {
+      continue;
+    }
+
+    const entries: { hostname: string; service: string }[] = [];
+    let pending: string | null = null;
+    for (const line of text.split('\n')) {
+      const host = /^\s*-?\s*hostname:\s*(\S+)/.exec(line);
+      if (host?.[1]) {
+        pending = host[1].replace(/^["']|["']$/g, '');
+        continue;
+      }
+      const service = /^\s*service:\s*(\S+)/.exec(line);
+      if (service?.[1] && pending !== null) {
+        entries.push({ hostname: pending, service: service[1].replace(/^["']|["']$/g, '') });
+        pending = null;
+      }
+    }
+    return entries;
+  }
+  return null;
+}
+
+function servicePort(service: string): number {
+  try {
+    const url = new URL(service);
+    if (url.port !== '') return Number(url.port);
+    return url.protocol === 'https:' ? 443 : 80;
+  } catch {
+    return 0;
+  }
+}
+
+function dialPort(dial: string): number {
+  const separator = dial.lastIndexOf(':');
+  return separator === -1 ? 0 : Number(dial.slice(separator + 1));
 }
 
 function isLoopback(host: string): boolean {
@@ -280,6 +337,147 @@ export class DoctorService {
               title: 'Caddy is reachable with no drift',
               status: 'pass',
               detail: `caddy ${caddyStatus.version ?? 'unknown'}, ${caddyStatus.managedRoutes} managed route(s)`,
+            },
+    );
+
+    // ------------------------------------------------------- public exposure
+    // The apps listener is fed to a tunnel by the operator, so anything it
+    // proxies to is reachable from the internet. A route pointing at one of our
+    // own listeners would publish the dashboard, the API, Vite, Caddy's admin API
+    // or the Docker socket proxy — the five ports listed here.
+    const PRIVATE_PORTS: Record<number, string> = {
+      8787: 'backend API',
+      8090: 'dashboard (served build)',
+      5173: 'Vite dev server',
+      2019: "Caddy's admin API",
+      2375: 'Docker socket proxy',
+    };
+
+    // The dashboard listener is allowed to proxy to the backend — that is what it
+    // is for, and it is loopback-only. What matters is a listener a tunnel could
+    // be pointed at, so routes on the dashboard port are out of scope.
+    const dashboardPort = this.config.caddy.dashboardListen.port;
+    const exposedElsewhere = (target: { listen: string[] }): boolean =>
+      target.listen.length === 0 || target.listen.some((entry) => !entry.endsWith(`:${dashboardPort}`));
+
+    // Two different rules, because two different listeners:
+    //  * the apps listener (a tunnel's target) must never reach one of our own
+    //    ports at all — deployed apps are /api-agnostic by definition;
+    //  * a gateway listener exists to reach exactly one service, the API (8787),
+    //    so that one dial is legitimate and everything else is a hole.
+    const appsPort = this.config.caddy.appsListen.port;
+    const allowedOnGateway = new Set([8787]);
+
+    const isOffending = (target: { listen: string[]; dial: string }): boolean => {
+      const port = dialPort(target.dial);
+      if (PRIVATE_PORTS[port] === undefined) return false;
+      if (!exposedElsewhere(target)) return false;
+      const onAppsListener = target.listen.some((entry) => entry.endsWith(`:${appsPort}`));
+      if (onAppsListener) return true;
+      return !allowedOnGateway.has(port);
+    };
+
+    try {
+      const targets = await this.caddy.upstreamTargets();
+      const offending = [
+        ...new Map(
+          targets
+            .filter(isOffending)
+            .map((target) => [`${target.listen.join(',')}|${target.dial}`, target]),
+        ).values(),
+      ];
+      push(
+        offending.length === 0
+          ? {
+              id: 'public-private-upstreams',
+              title: 'No exposed listener proxies to a private port',
+              status: 'pass',
+              detail:
+                targets.length === 0
+                  ? 'no proxied routes yet'
+                  : `${targets.length} proxied route(s), none on ${Object.keys(PRIVATE_PORTS).join('/')}`,
+            }
+          : {
+              id: 'public-private-upstreams',
+              title: 'No exposed listener proxies to a private port',
+              status: 'warn',
+              detail: offending
+                .map((target) => `${target.listen.join(',') || target.server} → ${target.dial} (${PRIVATE_PORTS[dialPort(target.dial)] ?? 'private'})`)
+                .join('; '),
+              fix: 'Delete that route: the dashboard and the API belong on the loopback listeners, never on the apps port a tunnel exposes',
+            },
+      );
+    } catch {
+      push({
+        id: 'public-private-upstreams',
+        title: 'No exposed listener proxies to a private port',
+        status: 'skip',
+        detail: 'Caddy config could not be read',
+        fix: 'Fix caddy-reachable first',
+      });
+    }
+
+    // The other half of the same question: what does the tunnel point at? Read
+    // from cloudflared's own ingress rules when they exist, so pointing a
+    // hostname at the dashboard is caught before it is reachable.
+    const ingress = readCloudflaredIngress();
+    const dodgyIngress = (ingress ?? []).filter((rule) => PRIVATE_PORTS[servicePort(rule.service)] !== undefined);
+    push(
+      ingress === null
+        ? {
+            id: 'tunnel-targets',
+            title: 'Tunnel ingress points only at intended listeners',
+            status: 'skip',
+            detail: 'no ~/.cloudflared/config.yml yet — not configured, or configured elsewhere',
+          }
+        : dodgyIngress.length === 0
+          ? {
+              id: 'tunnel-targets',
+              title: 'Tunnel ingress points only at intended listeners',
+              status: 'pass',
+              detail:
+                ingress.length === 0
+                  ? 'ingress file has no hostname rules'
+                  : ingress.map((rule) => `${rule.hostname} → ${rule.service}`).join('; '),
+            }
+          : {
+              id: 'tunnel-targets',
+              title: 'Tunnel ingress points only at intended listeners',
+              status: 'warn',
+              detail: dodgyIngress
+                .map((rule) => `${rule.hostname} → ${rule.service} (${PRIVATE_PORTS[servicePort(rule.service)] ?? 'private'})`)
+                .join('; '),
+              fix: 'Point public hostnames at the apps listener 127.0.0.1:8080, and hooks at 127.0.0.1:8081. Never at 8090/8787/5173/2019/2375',
+            },
+    );
+
+    // A public base domain means deployed apps — and the hostname space around
+    // them — are reachable by anyone. The dashboard stays loopback-only, but the
+    // password is now the only thing standing between the internet and an admin
+    // session, so 2FA stops being optional. A warning, not a failure: it is a
+    // decision for the operator, not a broken install.
+    const publicBases = this.config.caddy.allowedBaseDomains.filter((domain) => domain.includes('.'));
+    push(
+      publicBases.length === 0
+        ? {
+            id: 'public-domain-2fa',
+            title: 'Public domain exposure has 2FA behind it',
+            status: 'skip',
+            detail: 'no public base domain configured — localhost only',
+          }
+        : admin?.totp_enabled === 1
+          ? {
+              id: 'public-domain-2fa',
+              title: 'Public domain exposure has 2FA behind it',
+              status: 'pass',
+              detail: `public hosts under ${publicBases.join(', ')}, 2FA on, dashboard still loopback-only`,
+            }
+          : {
+              id: 'public-domain-2fa',
+              title: 'Public domain exposure has 2FA behind it',
+              status: 'warn',
+              detail: `${publicBases.join(', ')} is configured but 2FA is off — one password is the only barrier`,
+              fix: 'Settings → Security → Enable 2FA before you point a tunnel at anything',
             },
     );
 

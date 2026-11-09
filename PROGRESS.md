@@ -4,7 +4,7 @@
 > Any AI agent or human resuming work: read this file top to bottom BEFORE
 > touching code. Update it at the end of every work session. Never leave it stale.
 
-Last updated: 2026-11-09 (session 22 — operator guide: adding and running your own project)
+Last updated: 2026-11-09 (session 23 — public access: Cloudflare Tunnel, webhook gateway, hostname rules)
 
 ---
 
@@ -532,6 +532,44 @@ way a container is created is the deploy pipeline, which owns the safety policy.
 73. **Copy is the brief's, and the Domains action reflects reality**: with no
     projects the `Add domain` button renders disabled with a title hint, because a
     domain has to point at something.
+
+### Session 23 (public access through a Cloudflare Tunnel)
+74. **The tunnel points at three loopback listeners, and the dashboard is not one
+    of them.** `8080` (apps, wildcard ingress), `8081` (webhook gateway) and
+    nothing else. `8090`/`8787`/`5173`/`2019`/`2375` are never ingress targets: the
+    dashboard stays `http://capturehost.localhost:8090` on this machine.
+75. **The gateway is its own Caddy listener, not a route on the apps listener.**
+    Caddy can only *append* routes to a server, so a route written in the Caddyfile
+    on `:8080` would either shadow every deployed site or publish `/api` on the port
+    a tunnel exposes. A separate `hooks.<domain>:8081` site with `bind 127.0.0.1`,
+    one `method POST` + `path_regexp ^/api/webhooks/github/[0-9]{1,20}$` matcher,
+    `request_body max_size 1MB`, and a `respond 404` fallback keeps the blast radius
+    at one path. A second `:8081` site answers 404 for other hostnames, because an
+    unmatched site on a bound listener answers an empty 200 that looks like success.
+76. **`CF-Connecting-IP` is believed only from a loopback peer.** `resolveClientIp`
+    (`utils/clientIp.ts`) takes the peer from the socket, normalises
+    `::ffff:127.0.0.1` and zone ids, and honours the header only when that peer is
+    in `TRUST_PROXY_ADDRESSES`. A header carrying a list, a non-IP, or anything sent
+    from a non-loopback source is ignored — otherwise one forged header picks
+    somebody else's rate-limit bucket and can lock the real admin out. `X-Forwarded-For`
+    is deliberately *not* read here; Fastify already handles it under `trustProxy`.
+77. **Hostname rules for real domains: exactly one label, apex refused, six
+    reserved names.** `app.captureordie.online` yes; `a.b.…` no; `captureordie.online`
+    no; `www`, `hooks`, `capturehost`, `admin`, `dashboard`, `api` no, in every base.
+    `localhost` keeps two labels because it is a TLD stand-in and the existing
+    convention nests under `.capturehost.localhost` — breaking that would invalidate
+    the live `hello-capturehost` domain for no security gain.
+78. **`SESSION_COOKIE_SECURE=false` in tunnel mode is correct, not a mistake.** You
+    log into the dashboard over plain HTTP on loopback; a `Secure` cookie is not sent
+    over HTTP, so `true` locks the operator out of their own dashboard. The cookie
+    never leaves the machine and the dashboard is never in the tunnel. Domain URLs in
+    the dashboard are now decided per hostname, not per mode: public bases get
+    `https://<name>` (no port), localhost names keep `http://<name>:8080`.
+79. **The doctor's two exposure checks are listener-aware.** The apps listener may
+    never dial a private port at all; a gateway listener may dial only `8787` (the
+    API) and nothing else; routes on the dashboard port are out of scope, because
+    `:8090 → :8787` is exactly what the dashboard is for. A blind
+    "no route may reach 8787" rule would have warned about the dashboard forever.
 
 ## 8. Known gaps / deliberate deferrals
 
@@ -1085,6 +1123,56 @@ way a container is created is the deploy pipeline, which owns the safety policy.
 - Writing it surfaced a real gap, now in §8: **`healthPath` is exposed by the API and
   honoured by the pipeline, but the project form never asks for it**, so health is
   effectively "process stayed up". Worth a form field when someone needs it.
+
+### 2026-11-09 — session 23 (public access through a Cloudflare Tunnel)
+- **Client IP.** New `utils/clientIp.ts` + wiring in `routes/auth.ts` (session meta,
+  so login lockouts key on the real client) and `routes/webhook.ts` (rate limit,
+  rejection alerts). 12 unit tests, including "a spoofed header from another source
+  is ignored" and "a header naming 127.0.0.1 from elsewhere is ignored".
+- **Hostname rules.** `RESERVED_LABELS` (www, hooks, capturehost, admin, dashboard,
+  api), apex refusal with its own message, and `maxLabelsUnderBase` (1 for real
+  domains, 2 for `localhost`). 8 new tests in `domains.test.ts`.
+- **Webhook gateway.** `deploy/caddy/Caddyfile` gained a `hooks.captureordie.online:8081`
+  site (loopback, one path, 1 MB, 404 fallback) plus a `:8081` wrong-host 404.
+  Verified with `caddy validate` and a reload, then by probe:
+
+      POST /api/webhooks/github/1        Host: hooks…            401  (reached Fastify)
+      GET  /api/webhooks/github/1        Host: hooks…            404
+      POST /api/webhooks/github/abc      Host: hooks…            404
+      POST /api/webhooks/github/1/extra  Host: hooks…            404
+      POST /api/auth/login               Host: hooks…            404
+      GET  /api/health                   Host: hooks…            404
+      POST /api/webhooks/github/1        Host: capturehost…      404
+      POST /api/webhooks/github/1        Host: evil.example      404
+      POST /api/webhooks/github/1        2 MB body               413
+
+- **Private parts stay private.** Probes on the apps listener with foreign Host
+  headers: `capturehost.localhost` `/`, `/api/health`, `/api/domains`, `/ws/metrics`
+  → all 404; `random-name.captureordie.online` → 404; `hooks.…` → 404; while
+  `hello.capturehost.localhost` → 200 (control). On the dashboard port any host but
+  `capturehost.localhost` → 404.
+- **A transient worth knowing about:** reloading the Caddyfile replaces the whole
+  config, so the backend's tagged routes *and* its 404 catch-all disappear until the
+  next sync (up to `CADDY_SYNC_INTERVAL_MS`, 60 s). During that window the apps
+  listener answers **empty 200s** for everything — including `/api/health` — which
+  looks like success to a scanner. It is not a leak (nothing is proxied) but it is
+  the reason the catch-all exists, and the doctor reports the drift meanwhile.
+- **Doctor.** `public-private-upstreams` (apps listener: no private dials; gateway:
+  8787 only; dashboard listener out of scope), `tunnel-targets` (parses
+  `~/.cloudflared/config.yml` when present and warns on a private port target),
+  `public-domain-2fa` (warn while a public base domain is configured and 2FA is off).
+  Live run: 14 pass, 3 warn, 0 fail, 2 skipped; the two new public checks skip
+  because this machine is still `CADDY_MODE=local`.
+- **Docs.** README gained "Publish apps on your own domain": the exact `.env` block
+  with the reasoning for each value, the hostname rules, the threat model (public
+  apps, laptop must stay awake, dashboard never in the tunnel, 2FA stops being
+  optional), the Cloudflare side as commands the operator runs (install, login,
+  create, `tunnel route dns`, ingress yaml, user service), the priority table, the
+  DNS record, an explicit "must not be created" list, a listener table, verification
+  commands, and how to turn public access off (`systemctl --user stop cloudflared`).
+  `.env.example` carries the same block as comments.
+- **Gates.** 380 backend tests / 20 files, launcher 21, `tsc` clean both packages,
+  frontend build 112 modules, `npm audit` 0 vulnerabilities.
 
 ## 10. How to resume (for the next agent)
 

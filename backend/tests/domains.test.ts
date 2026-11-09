@@ -10,6 +10,7 @@ import {
   isAllowedUpstream,
   isManagedRoute,
   routeTag,
+  maxLabelsUnderBase,
   upstreamPortOf,
   validateHostname,
   type UpstreamPolicy,
@@ -29,6 +30,58 @@ const policy: UpstreamPolicy = {
   portRangeEnd: 8999,
   forbiddenPorts: [2375, 2019, 8787, 8090, 5173],
 };
+
+describe('validateHostname — public base domain (captureordie.online)', () => {
+  const hostPolicy = {
+    allowedBaseDomains: ['captureordie.online', 'localhost'],
+    reservedHosts: ['hooks.captureordie.online', 'capturehost.localhost'],
+  };
+
+  it('accepts exactly one label under the public domain', () => {
+    for (const hostname of ['app.captureordie.online', 'blog.captureordie.online', 'my-site.captureordie.online']) {
+      expect(validateHostname(hostname, hostPolicy).ok, hostname).toBe(true);
+    }
+  });
+
+  it('refuses the bare apex', () => {
+    const result = validateHostname('captureordie.online', hostPolicy);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/base domain itself/i);
+  });
+
+  it('refuses a second label under the public domain', () => {
+    // Keep every public hostname a single DNS record and a single wildcard.
+    const result = validateHostname('a.b.captureordie.online', hostPolicy);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/exactly one label/i);
+  });
+
+  it('refuses every reserved name, in every base domain', () => {
+    const reserved = ['www', 'hooks', 'capturehost', 'admin', 'dashboard', 'api'];
+    for (const name of reserved) {
+      const publicResult = validateHostname(`${name}.captureordie.online`, hostPolicy);
+      expect(publicResult.ok, `${name}.captureordie.online`).toBe(false);
+      expect(publicResult.reason).toMatch(/reserved/i);
+
+      const localResult = validateHostname(`${name}.localhost`, hostPolicy);
+      expect(localResult.ok, `${name}.localhost`).toBe(false);
+      expect(localResult.reason).toMatch(/reserved/i);
+    }
+  });
+
+  it('keeps the localhost convention working', () => {
+    // The dashboard hostname and the local dev levels are deliberately deeper
+    // than one label; only real base domains are held to exactly one.
+    expect(validateHostname('hello.capturehost.localhost', hostPolicy).ok).toBe(true);
+    expect(validateHostname('capturehost.localhost', hostPolicy).ok).toBe(false);
+    expect(validateHostname('a.b.c.localhost', hostPolicy).ok).toBe(false);
+  });
+
+  it('reports the maximum depth it will accept', () => {
+    expect(maxLabelsUnderBase('captureordie.online')).toBe(1);
+    expect(maxLabelsUnderBase('localhost')).toBe(2);
+  });
+});
 
 describe('validateHostname', () => {
   const hostPolicy = {

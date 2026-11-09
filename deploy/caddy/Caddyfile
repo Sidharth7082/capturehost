@@ -10,7 +10,6 @@
 #
 # Everything here binds to loopback. The admin API is unauthenticated, so it
 # must never be reachable from anything but this machine.
-
 {
 	# Unauthenticated by design -> loopback only. Never change this to 0.0.0.0.
 	admin 127.0.0.1:2019
@@ -85,6 +84,51 @@ http://capturehost.localhost:8090 {
 # 404 — an unmatched site on a listener otherwise answers an empty 200, which
 # looks like a working endpoint to a scanner.
 http://:8090 {
+	bind 127.0.0.1
+	respond 404
+}
+
+# ---------------------------------------------------------------------------
+# WEBHOOK GATEWAY — the only public entrance to Fastify.
+#
+# A Cloudflare Tunnel maps hooks.captureordie.online → http://127.0.0.1:8081,
+# i.e. this listener. Exactly one request shape is forwarded to the backend:
+#   POST /api/webhooks/github/<digits>, body at most 1 MB.
+# Everything else — other methods, other paths, other hostnames, oversized
+# bodies — never reaches Fastify. A scanner learns nothing beyond "not found".
+#
+# The host in the site address must equal WEBHOOK_PUBLIC_HOST in .env; the
+# backend's doctor reports it if the two disagree with the configured base
+# domains.
+# ---------------------------------------------------------------------------
+http://hooks.captureordie.online:8081 {
+	bind 127.0.0.1
+
+	@github_webhook {
+		method POST
+		path_regexp hook ^/api/webhooks/github/[0-9]{1,20}$
+	}
+
+	handle @github_webhook {
+		# A GitHub push payload is a few KB; the cap is here so an unauthenticated
+		# public path cannot be used to make this process buffer anything large.
+		request_body {
+			max_size 1MB
+		}
+
+		# The peer of this connection is loopback, which is exactly the condition
+		# under which the backend believes CF-Connecting-IP (TRUST_PROXY_ADDRESSES).
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	handle {
+		respond 404
+	}
+}
+
+# Anything else arriving on the gateway port is not the gateway: a wrong host on
+# a bound listener would otherwise answer an empty 200, which looks like success.
+http://:8081 {
 	bind 127.0.0.1
 	respond 404
 }

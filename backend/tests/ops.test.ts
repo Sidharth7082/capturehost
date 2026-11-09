@@ -7,10 +7,11 @@ import { migrate } from '../src/db/migrate.js';
 import { BackupService } from '../src/services/backup.js';
 import { NotificationService, assertSafeWebhookUrl, isPrivateAddress } from '../src/services/notifications.js';
 import { RetentionService } from '../src/services/retention.js';
-import { DoctorService } from '../src/services/doctor.js';
+import { DoctorService, readCloudflaredIngress } from '../src/services/doctor.js';
+import type { AppConfig } from '../src/config.js';
 import type { CaddyService } from '../src/services/caddy.js';
 import type { DockerService } from '../src/services/docker.js';
-import { createTestDb, silentLogger, testConfig, type TestDb } from './helpers.js';
+import { createTestDb, silentLogger, testConfig, type TestDb, seedAdmin } from './helpers.js';
 
 /** Phase 6: backups, notifications (incl. SSRF), retention and the doctor. */
 
@@ -305,6 +306,7 @@ describe('doctor', () => {
         error: null,
         ...status,
       }),
+      upstreamTargets: async () => [],
       start: () => undefined,
       stop: () => undefined,
       sync: async () => ({ added: 0, removed: 0, repaired: 0, drift: false }),
@@ -332,7 +334,9 @@ describe('doctor', () => {
       expect(byId.get('listeners-loopback')?.status).toBe('pass');
       expect(byId.get('trust-proxy')?.status).toBe('pass');
       expect(byId.get('caddy-admin-loopback')?.status).toBe('pass');
-      expect(report.summary.fail + report.summary.warn + report.summary.pass).toBe(report.checks.length);
+      expect(report.summary.fail + report.summary.warn + report.summary.pass + report.summary.skip).toBe(
+        report.checks.length,
+      );
     } finally {
       testDb.cleanup();
     }
@@ -378,6 +382,200 @@ describe('doctor', () => {
       expect(text).not.toContain(config.encryptionKey.toString('hex'));
     } finally {
       testDb.cleanup();
+    }
+  });
+});
+
+const fakeCaddyWith = (targets: { server: string; listen: string[]; dial: string }[]) =>
+    ({
+      status: async () => ({
+        reachable: true,
+        version: '2.11.8',
+        managedRoutes: 1,
+        otherRoutes: 0,
+        drift: false,
+        lastSyncAt: Date.now(),
+        lastSync: null,
+        error: null,
+      }),
+      upstreamTargets: async () => targets,
+      start: () => undefined,
+      stop: () => undefined,
+      sync: async () => ({ added: 0, removed: 0, repaired: 0, drift: false }),
+    }) as unknown as CaddyService;
+
+describe('doctor — public exposure', () => {
+  /** A config that has switched to tunnel mode on a real domain. */
+  const publicConfig = (base: AppConfig): AppConfig => ({
+    ...base,
+    caddy: {
+      ...base.caddy,
+      mode: 'tunnel',
+      allowedBaseDomains: ['localhost', 'captureordie.online'],
+      webhookPublicHost: 'hooks.captureordie.online',
+    },
+  });
+
+  const runDoctor = async (
+    configure: (config: AppConfig) => AppConfig,
+    caddy: CaddyService,
+    twoFactor: boolean,
+  ) => {
+    const testDb = createTestDb();
+    try {
+      await seedAdmin(testDb.db);
+      if (twoFactor) testDb.db.prepare('UPDATE admin SET totp_enabled = 1').run();
+      const doctor = new DoctorService({
+        db: testDb.db,
+        config: configure(testConfig()),
+        logger: silentLogger,
+        caddy,
+        docker: {} as DockerService,
+      });
+      const report = await doctor.run();
+      return new Map(report.checks.map((check) => [check.id, check]));
+    } finally {
+      testDb.cleanup();
+    }
+  };
+
+  it('warns when a Caddy route proxies to the backend or the dashboard', async () => {
+    const byId = await runDoctor(
+      publicConfig,
+      fakeCaddyWith([
+        { server: 'srv0', listen: ['127.0.0.1:8080'], dial: '127.0.0.1:8787' },
+        { server: 'srv0', listen: ['127.0.0.1:8080'], dial: '127.0.0.1:8090' },
+      ]),
+      true,
+    );
+
+    const check = byId.get('public-private-upstreams');
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toContain('8787');
+    expect(check?.detail).toContain('8090');
+    expect(check?.fix).toBeDefined();
+  });
+
+  it('allows the webhook gateway to reach the API, and nothing else', async () => {
+    const allowed = await runDoctor(
+      publicConfig,
+      fakeCaddyWith([{ server: 'srv1', listen: ['127.0.0.1:8081'], dial: '127.0.0.1:8787' }]),
+      true,
+    );
+    expect(allowed.get('public-private-upstreams')?.status).toBe('pass');
+
+    const wrong = await runDoctor(
+      publicConfig,
+      fakeCaddyWith([{ server: 'srv1', listen: ['127.0.0.1:8081'], dial: '127.0.0.1:8090' }]),
+      true,
+    );
+    const check = wrong.get('public-private-upstreams');
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toContain('8090');
+  });
+
+  it('ignores the dashboard listener proxying to its own API', async () => {
+    // 8090 -> 8787 is what the dashboard is for, and it is loopback-only.
+    const byId = await runDoctor(
+      publicConfig,
+      fakeCaddyWith([{ server: 'srv2', listen: ['127.0.0.1:8090'], dial: '127.0.0.1:8787' }]),
+      true,
+    );
+    expect(byId.get('public-private-upstreams')?.status).toBe('pass');
+  });
+
+  it('passes when every route points at an app container port', async () => {
+    const byId = await runDoctor(
+      publicConfig,
+      fakeCaddyWith([{ server: 'srv0', listen: ['127.0.0.1:8080'], dial: '127.0.0.1:8101' }]),
+      true,
+    );
+
+    expect(byId.get('public-private-upstreams')?.status).toBe('pass');
+  });
+
+  it('warns when a public base domain is configured with 2FA off', async () => {
+    const byId = await runDoctor(publicConfig, fakeCaddyWith([]), false);
+
+    const check = byId.get('public-domain-2fa');
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toMatch(/captureordie\.online/);
+    expect(check?.detail).toMatch(/2FA is off/i);
+  });
+
+  it('passes the same check once 2FA is on', async () => {
+    const byId = await runDoctor(publicConfig, fakeCaddyWith([]), true);
+    expect(byId.get('public-domain-2fa')?.status).toBe('pass');
+  });
+
+  it('skips the public checks when nothing public is configured', async () => {
+    const byId = await runDoctor((config) => config, fakeCaddyWith([]), false);
+    expect(byId.get('public-domain-2fa')?.status).toBe('skip');
+  });
+});
+
+describe('readCloudflaredIngress', () => {
+  it('parses hostname/service pairs and ignores the rest', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cfd-'));
+    try {
+      const path = join(dir, 'config.yml');
+      writeFileSync(
+        path,
+        [
+          'tunnel: abc-123',
+          'credentials-file: /home/capture/.cloudflared/abc.json',
+          'ingress:',
+          '  - hostname: app.captureordie.online',
+          '    service: http://127.0.0.1:8080',
+          '  - hostname: hooks.captureordie.online',
+          '    service: http://127.0.0.1:8081',
+          '  - service: http_status:404',
+          '',
+        ].join('\n'),
+      );
+
+      expect(readCloudflaredIngress([path])).toEqual([
+        { hostname: 'app.captureordie.online', service: 'http://127.0.0.1:8080' },
+        { hostname: 'hooks.captureordie.online', service: 'http://127.0.0.1:8081' },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns null when there is no config to read', () => {
+    expect(readCloudflaredIngress(['/nonexistent/cloudflared/config.yml'])).toBeNull();
+  });
+
+  it('warns when the tunnel points a hostname at the dashboard', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cfd-'));
+    const previous = process.env.CLOUDFLARED_CONFIG;
+    try {
+      const path = join(dir, 'config.yml');
+      writeFileSync(path, 'ingress:\n  - hostname: captureordie.online\n    service: http://127.0.0.1:8090\n');
+      process.env.CLOUDFLARED_CONFIG = path;
+
+      const testDb = createTestDb();
+      try {
+        const doctor = new DoctorService({
+          db: testDb.db,
+          config: testConfig(),
+          logger: silentLogger,
+          caddy: fakeCaddyWith([]),
+          docker: {} as DockerService,
+        });
+        const report = await doctor.run();
+        const check = report.checks.find((entry) => entry.id === 'tunnel-targets');
+
+        expect(check?.status).toBe('warn');
+        expect(check?.detail).toContain('8090');
+      } finally {
+        testDb.cleanup();
+      }
+    } finally {
+      if (previous === undefined) delete process.env.CLOUDFLARED_CONFIG;
+      else process.env.CLOUDFLARED_CONFIG = previous;
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

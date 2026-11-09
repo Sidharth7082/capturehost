@@ -46,9 +46,14 @@ function toDto(
   hostPort: number | null,
 ) {
   const listenPort = config.caddy.appsListen.port;
-  const scheme = config.caddy.mode === 'public' ? 'https' : 'http';
-  // In local/tunnel mode the apps listener is not 80, so the URL has to carry it.
-  const suffix = scheme === 'https' && listenPort === 443 ? '' : `:${listenPort}`;
+  // A tunnel serves real domains on 443 with Cloudflare's certificate; the
+  // localhost names in the same list stay on the loopback apps listener. So the
+  // scheme and port are decided per hostname, not per mode.
+  const localHost = domain.hostname.endsWith('.localhost');
+  const viaTunnel = config.caddy.mode === 'tunnel' && !localHost;
+  const scheme = config.caddy.mode === 'public' || viaTunnel ? 'https' : 'http';
+  // ... and only a loopback URL carries the apps port.
+  const suffix = viaTunnel ? '' : scheme === 'https' && listenPort === 443 ? '' : `:${listenPort}`;
 
   return {
     id: domain.id,

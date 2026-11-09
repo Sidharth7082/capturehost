@@ -167,6 +167,28 @@ export class CaddyService {
   }
 
   /**
+   * Every upstream every Caddy server proxies to, with the listener it sits on.
+   *
+   * The doctor uses this to answer one question only: does any route point at a
+   * port that belongs to CaptureHost itself (the dashboard, Fastify, Vite, the
+   * admin API, the Docker proxy)? A route that does is a hole, not a feature.
+   */
+  async upstreamTargets(): Promise<UpstreamTarget[]> {
+    const config = await this.configJson();
+    const servers =
+      (config.apps as { http?: { servers?: Record<string, CaddyServerShape> } } | undefined)?.http?.servers ?? {};
+
+    const targets: UpstreamTarget[] = [];
+    for (const [name, server] of Object.entries(servers)) {
+      const listen = Array.isArray(server.listen) ? server.listen : [];
+      for (const dial of collectDials(server.routes ?? [])) {
+        targets.push({ server: name, listen, dial });
+      }
+    }
+    return targets;
+  }
+
+  /**
    * Finds the server that serves the apps listener.
    *
    * With a Caddyfile-loaded config the server names are generated (srv0, srv1…),
@@ -591,4 +613,54 @@ export class CaddyService {
     clearInterval(this.timer);
     this.timer = null;
   }
+}
+
+// ------------------------------------------------------------ dial inspection
+
+interface CaddyServerShape {
+  listen?: string[];
+  routes?: unknown[];
+}
+
+export interface UpstreamTarget {
+  server: string;
+  listen: string[];
+  /** `host:port`, as Caddy writes it into a reverse_proxy upstream. */
+  dial: string;
+}
+
+/**
+ * Walks a Caddy route tree and returns every reverse_proxy `dial`.
+ *
+ * Route trees nest in three ways (`handle` as an array, `handle` as a single
+ * object, `routes` inside a subroute), so the walk is recursive rather than
+ * shaped after one known config. Unknown shapes are ignored, never assumed.
+ */
+function collectDials(routes: unknown[]): string[] {
+  const dials: string[] = [];
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child);
+      return;
+    }
+    if (node === null || typeof node !== 'object') return;
+
+    const record = node as Record<string, unknown>;
+    const handlers = record.handle;
+    if (Array.isArray(handlers)) visit(handlers);
+    else if (handlers !== undefined) visit(handlers);
+
+    if (Array.isArray(record.routes)) visit(record.routes);
+
+    const upstreams = record.upstreams;
+    if (record.handler === 'reverse_proxy' && Array.isArray(upstreams)) {
+      for (const upstream of upstreams) {
+        const dial = (upstream as { dial?: unknown } | null)?.dial;
+        if (typeof dial === 'string') dials.push(dial);
+      }
+    }
+  };
+
+  visit(routes);
+  return dials;
 }

@@ -9,6 +9,7 @@ import type { Logger } from '../logger.js';
 import type { AppInstance } from '../server.js';
 import type { DeploymentService } from '../services/deployments.js';
 import type { NotificationService } from '../services/notifications.js';
+import { resolveClientIp } from '../utils/clientIp.js';
 import { AppError } from '../utils/errors.js';
 import type { SessionRateLimiter } from '../utils/rateLimit.js';
 
@@ -127,7 +128,13 @@ export function registerWebhookRoutes(app: AppInstance, deps: WebhookRouteDeps):
       return reply.code(404).send({ ok: false });
     }
 
-    const ip = request.ip ?? 'unknown';
+    // Behind the tunnel the peer is the local cloudflared, so the real client
+    // address is in CF-Connecting-IP — trusted only for a loopback peer.
+    const ip = resolveClientIp({
+      peer: request.socket.remoteAddress,
+      cfConnectingIp: request.headers['cf-connecting-ip'],
+      trustedAddresses: deps.config.trustProxyAddresses,
+    });
     const rate = deps.ipLimiter.consume(`webhook:${ip}`);
     if (!rate.allowed) {
       writeAudit(deps.db, {

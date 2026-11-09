@@ -258,7 +258,12 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   });
 
   registerHealthRoutes(app, { db, version: APP_VERSION, startedAt });
-  registerAuthRoutes(app, { auth, registry, cookieName: config.session.cookieName });
+  registerAuthRoutes(app, {
+    auth,
+    registry,
+    cookieName: config.session.cookieName,
+    trustedAddresses: config.trustProxyAddresses,
+  });
   registerAuditRoutes(app, { db });
   registerMetricsRoutes(app, { db, sampler, config, logger, auth, registry }, hub);
   registerDockerRoutes(app, {

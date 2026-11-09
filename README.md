@@ -322,11 +322,208 @@ stopped, and the hostname is probed through Caddy. If either step fails the
 route is reverted and the old container keeps serving — the deployment is
 marked failed.
 
-### Optional public webhook gateway
+### Public webhook gateway
 
-`WEBHOOK_PUBLIC_HOST` (off by default) lets a tunnel expose exactly
-`POST /api/webhooks/github/<digits>` to the internet; everything else on that
-host must 404. The HMAC signature is still verified by the backend.
+`WEBHOOK_PUBLIC_HOST` turns on a gateway that lives in `deploy/caddy/Caddyfile` on
+its own loopback listener (`127.0.0.1:8081`), so nothing else has to be exposed
+for GitHub to reach you:
+
+- it forwards exactly `POST /api/webhooks/github/<digits>`, body capped at **1 MB**,
+  and nothing else — other methods, other paths and other hostnames on that port
+  are `404`;
+- the HMAC signature, delivery dedupe and per-IP rate limit are unchanged;
+- the client address is taken from `CF-Connecting-IP`, and believed **only** when
+  the connection comes from the local `cloudflared` (i.e. a peer in
+  `TRUST_PROXY_ADDRESSES`). A header sent from anywhere else is ignored, so it
+  cannot move somebody else's rate-limit bucket or lock the real admin out.
+
+## Publish apps on your own domain
+
+Local mode reaches apps at `http://<name>.capturehost.localhost:8080`, which only
+this laptop can resolve. This section puts them on a real domain with HTTPS,
+using a Cloudflare Tunnel — no port forwarding, no open inbound port, and the
+dashboard stays exactly where it is: `http://capturehost.localhost:8090`.
+
+The reference setup here is `captureordie.online`.
+
+### 1. The values
+
+```ini
+CADDY_MODE=tunnel
+ALLOWED_BASE_DOMAINS=localhost,captureordie.online
+WEBHOOK_PUBLIC_HOST=hooks.captureordie.online
+TRUST_PROXY=true
+TRUST_PROXY_ADDRESSES=127.0.0.1,::1
+SESSION_COOKIE_SECURE=false
+```
+
+Why these and not the obvious alternatives:
+
+| Setting | Value | Reason |
+|---|---|---|
+| `CADDY_MODE` | `tunnel` | apps stay on the plain-HTTP loopback listener; Cloudflare terminates TLS |
+| `ALLOWED_BASE_DOMAINS` | both bases | `localhost` stays in the list so `hello.capturehost.localhost` keeps working locally; real domains get their own rules |
+| `TRUST_PROXY` | `true` | Caddy is in front of Fastify, so `X-Forwarded-*` may be read — but only from the addresses below |
+| `TRUST_PROXY_ADDRESSES` | loopback | the same list decides when `CF-Connecting-IP` is believed. Never add a public address here |
+| `SESSION_COOKIE_SECURE` | **`false`** | you log into the dashboard on `http://capturehost.localhost:8090`. A `Secure` cookie is not sent over plain HTTP, so `true` locks you out of your own dashboard. The cookie never leaves the machine, and the dashboard is not in the tunnel |
+
+Then restart: `python3 capturehost.py restart`. Domain URLs in the dashboard switch
+to `https://<name>.captureordie.online` automatically for public bases, and
+localhost names keep their `:8080`.
+
+### 2. Hostname rules
+
+Enforced in `services/domains.ts` (with tests) and reported by the doctor:
+
+- **exactly one label** under a real base domain: `app.captureordie.online` — never
+  `a.b.captureordie.online`;
+- **the apex is refused**: `captureordie.online` itself is not attachable;
+- **reserved names are refused**: `www`, `hooks`, `capturehost`, `admin`,
+  `dashboard`, `api` — in every base domain;
+- `localhost` keeps the older dev convention (`hello.capturehost.localhost`) because
+  that base is a TLD stand-in, not a domain you own.
+
+### 3. Threat model — read this before you turn it on
+
+1. **Every deployed app becomes reachable by the whole internet.** The container
+   runs a Dockerfile from a repository you chose. Deploy only repositories you
+   trust: the build executes that code on this machine, and the running app is
+   exposed to anyone who finds the hostname.
+2. **The laptop must stay awake and online.** It is now the server. Sleep, a
+   suspended lid or a dropped connection makes every public hostname fail with a
+   502 from Cloudflare. There is no fallback, no replica and no uptime guarantee.
+3. **The dashboard and the API are never in the tunnel.** Ingress points at
+   `127.0.0.1:8080` (apps) and `127.0.0.1:8081` (webhook gateway) only. Nothing
+   points at 8090, 8787, 5173, 2019 or 2375 — the doctor warns if anything does,
+   including the tunnel's own config.
+4. **The tunnel is the only way in.** No port forwarding, no firewall hole, no
+   public IP needed. Turning it off is one process.
+5. **You are now discoverable.** Your apps are on a public domain: they can be
+   scanned, fuzzed and indexed. That is acceptable if the apps are meant to be
+   public, and not acceptable for a personal tool that only you should reach — for
+   that, use Tailscale instead.
+6. **2FA stops being optional.** One password would be the only barrier between the
+   internet and an admin session. The doctor warns while a public base domain is
+   configured and 2FA is off.
+
+### 4. Cloudflare side — commands for you to run
+
+Nothing here needs a token pasted into the repo, and Hermes never touches your
+Cloudflare account.
+
+```bash
+# 1. install (sudo)
+sudo pacman -S --needed cloudflared
+
+# 2. authorise this machine and create the tunnel (opens a browser)
+cloudflared tunnel login
+cloudflared tunnel create capturehost           # note the tunnel UUID it prints
+
+# 3. one DNS record: a proxied wildcard CNAME for every app hostname
+cloudflared tunnel route dns capturehost '*.captureordie.online'
+```
+
+`~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: capturehost
+credentials-file: /home/capture/.cloudflared/<tunnel-uuid>.json
+
+ingress:
+  # first match wins — keep these two, in this order
+  - hostname: hooks.captureordie.online
+    service: http://127.0.0.1:8081     # webhook gateway, one path only
+  - hostname: "*.captureordie.online"
+    service: http://127.0.0.1:8080     # deployed apps
+  - service: http_status:404           # everything else, including the apex
+```
+
+```bash
+cloudflared tunnel run capturehost            # foreground, Ctrl-C stops public access
+
+# or as a user service (no sudo, survives logout with `loginctl enable-linger capture`)
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/cloudflared.service <<'EOF'
+[Unit]
+Description=CaptureHost Cloudflare Tunnel
+After=network-online.target
+[Service]
+ExecStart=/usr/bin/cloudflared --config /home/capture/.cloudflared/config.yml tunnel run
+Restart=on-failure
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user daemon-reload
+systemctl --user enable --now cloudflared
+```
+
+| Priority | Public hostname | Local URL | Serves |
+|---|---|---|---|
+| 1 | `hooks.captureordie.online` | `http://127.0.0.1:8081` | `POST /api/webhooks/github/<digits>` and nothing else |
+| 2 | `*.captureordie.online` | `http://127.0.0.1:8080` | deployed apps, one label each |
+| — | anything else (apex included) | — | `404`, from the ingress fallback |
+
+**DNS:** one record, `*.captureordie.online` → `CNAME <tunnel-uuid>.cfargotunnel.com`,
+**proxied** (orange cloud). `cloudflared tunnel route dns` creates it for you.
+
+**Must not be created**, in Cloudflare or in `config.yml`:
+
+- an ingress rule pointing at `8090`, `8787`, `5173`, `2019` or `2375`;
+- any public hostname for the dashboard (it is loopback-only by design);
+- an `A`/`AAAA` record for the laptop's IP, or a DNS-only (grey cloud) wildcard —
+  the tunnel does not work unproxied;
+- a rule for the bare apex, or a second-level wildcard
+  (`*.*.captureordie.online`) — the hostname policy refuses those anyway;
+- a second tunnel or a second path to `8787`.
+
+### 5. What listens where
+
+Every listener on this machine, and the only thing that should ever be pointed at
+it. Anything a tunnel points at must be one of the first two rows.
+
+| Listener | Serves | In the tunnel? |
+|---|---|---|
+| `127.0.0.1:8080` | deployed apps, by `Host`, with a 404 catch-all for everything else | **yes** — the wildcard ingress target |
+| `127.0.0.1:8081` | the webhook gateway: `POST /api/webhooks/github/<digits>` only, 1 MB, 404 otherwise | **yes** — the `hooks.` ingress target |
+| `127.0.0.1:8090` | the dashboard (built frontend + `/api` + `/ws` for `capturehost.localhost` only) | never |
+| `127.0.0.1:8787` | Fastify: the API and the WebSocket hub | never |
+| `127.0.0.1:5173` | Vite dev server (development only) | never |
+| `127.0.0.1:2019` | Caddy's admin API, unauthenticated by design | never |
+| `127.0.0.1:2375` | Docker socket proxy, limited flags | never |
+
+### 5. Verify it
+
+```bash
+# from this machine: the private parts are still private
+curl -s -o /dev/null -w '%{http_code}
+' -H 'Host: capturehost.localhost' http://127.0.0.1:8080/api/health   # 404
+curl -s -o /dev/null -w '%{http_code}
+' -X POST -H 'Host: hooks.captureordie.online'      http://127.0.0.1:8080/api/webhooks/github/1                                                          # 404
+curl -s -o /dev/null -w '%{http_code}
+' -X POST -H 'Host: hooks.captureordie.online'      http://127.0.0.1:8081/api/webhooks/github/1                                                          # 401/2xx — reached the backend
+
+# once the tunnel is up: from your phone, off the laptop's network
+#   https://<name>.captureordie.online  -> the app
+#   https://hooks.captureordie.online/api/health -> 404
+```
+
+The doctor carries three checks for this: `public-private-upstreams` (no route
+dials a private port), `tunnel-targets` (the tunnel's ingress file, when it
+exists), and `public-domain-2fa`.
+
+### 6. Turning public access off
+
+```bash
+systemctl --user stop cloudflared     # or Ctrl-C in the foreground
+```
+
+That is the whole switch: DNS keeps pointing at Cloudflare, Cloudflare answers 502
+for the tunnel, nothing reaches this machine, and the dashboard keeps working on
+`http://capturehost.localhost:8090`. Deployed containers keep running; their
+hostnames revert to `http://<name>.capturehost.localhost:8080` for you and stop
+working for everyone else. To remove the exposure permanently, delete the wildcard
+DNS record and the tunnel in the Cloudflare dashboard (or `cloudflared tunnel
+delete capturehost`), and set `CADDY_MODE=local` again.
 
 ## Security model (short version)
 

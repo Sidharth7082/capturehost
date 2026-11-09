@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import type { AppInstance } from '../server.js';
 import type { AuthService, SessionMeta } from '../services/auth.js';
 import type { SocketRegistry } from '../services/socketRegistry.js';
+import { resolveClientIp } from '../utils/clientIp.js';
 import { AppError } from '../utils/errors.js';
 
 const LoginSchema = z.object({
@@ -33,12 +34,21 @@ export interface AuthRoutesDeps {
   auth: AuthService;
   registry: SocketRegistry;
   cookieName: string;
+  /**
+   * Peers whose `CF-Connecting-IP` we believe (the local cloudflared, i.e.
+   * loopback). Anything else keeps its own address as the lockout key.
+   */
+  trustedAddresses?: readonly string[];
 }
 
-function sessionMeta(request: FastifyRequest): SessionMeta {
+function sessionMeta(request: FastifyRequest, deps: AuthRoutesDeps): SessionMeta {
   const agent = request.headers['user-agent'];
   return {
-    ip: request.ip,
+    ip: resolveClientIp({
+      peer: request.socket.remoteAddress,
+      cfConnectingIp: request.headers['cf-connecting-ip'],
+      trustedAddresses: deps.trustedAddresses ?? ['127.0.0.1', '::1'],
+    }),
     userAgent: typeof agent === 'string' ? agent.slice(0, 300) : null,
   };
 }
@@ -57,7 +67,7 @@ export function registerAuthRoutes(app: AppInstance, deps: AuthRoutesDeps): void
   app.post('/api/auth/login', async (request, reply) => {
     const body = LoginSchema.parse(request.body);
 
-    const result = await deps.auth.login(body.username, body.password, sessionMeta(request));
+    const result = await deps.auth.login(body.username, body.password, sessionMeta(request, deps));
 
     const kind = result.requires2fa ? 'pending_2fa' : 'full';
     setSessionCookie(deps, reply, result.token, Math.floor(deps.auth.idleMsFor(kind) / 1000));
@@ -76,7 +86,7 @@ export function registerAuthRoutes(app: AppInstance, deps: AuthRoutesDeps): void
 
     if (!session) throw AppError.unauthorized('No pending login');
 
-    const result = await deps.auth.completeSecondFactor(session, body.code, sessionMeta(request));
+    const result = await deps.auth.completeSecondFactor(session, body.code, sessionMeta(request, deps));
     setSessionCookie(deps, reply, result.token, Math.floor(deps.auth.idleMsFor('full') / 1000));
 
     return { requires2fa: false, username: result.username, csrfToken: result.csrfToken };

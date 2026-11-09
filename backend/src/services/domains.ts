@@ -20,6 +20,29 @@ export interface HostnamePolicy {
   reservedHosts: readonly string[];
 }
 
+/**
+ * Names that belong to something other than a deployed app: the DNS name people
+ * type by habit (www), the tunnel's webhook gateway (hooks), the dashboard
+ * (capturehost, admin, dashboard) and anything somebody will one day build an
+ * API on (api). Refusing them at the source is cheaper than explaining later why
+ * `api.example.com` serves a todo list.
+ */
+export const RESERVED_LABELS: readonly string[] = ['www', 'hooks', 'capturehost', 'admin', 'dashboard', 'api'];
+
+/**
+ * How many labels a hostname may carry under its base domain.
+ *
+ * A real domain gets exactly one: `app.captureordie.online`, never
+ * `a.b.captureordie.online`. Every extra level is another wildcard certificate
+ * and another name nobody can prove ownership of.
+ *
+ * A single-label base (`localhost`) is a TLD stand-in, and the local convention
+ * nests one more level (`hello.capturehost.localhost`), so it keeps two.
+ */
+export function maxLabelsUnderBase(base: string): number {
+  return base.includes('.') ? 1 : 2;
+}
+
 export interface HostnameCheck {
   ok: boolean;
   hostname: string;
@@ -64,12 +87,51 @@ export function validateHostname(raw: string, policy: HostnamePolicy): HostnameC
     }
   }
 
+  // The apex is a special case worth its own sentence: it is not "outside the
+  // allowed bases", it is the domain itself, and it carries the web server, the
+  // mail records and whatever else was there before CaptureHost existed.
+  if (policy.allowedBaseDomains.includes(hostname)) {
+    return {
+      ok: false,
+      hostname,
+      reason: `"${hostname}" is the base domain itself — attach a subdomain such as app.${hostname}`,
+    };
+  }
+
   const base = policy.allowedBaseDomains.find((domain) => hostname.endsWith(`.${domain}`));
   if (!base) {
     return {
       ok: false,
       hostname,
       reason: `Hostname must end with ${policy.allowedBaseDomains.map((domain) => `.${domain}`).join(' or ')}`,
+    };
+  }
+
+  const baseLabels = base.split('.').length;
+  const subLabels = labels.slice(0, labels.length - baseLabels);
+  const max = maxLabelsUnderBase(base);
+
+  if (subLabels.length === 0) {
+    return { ok: false, hostname, reason: `"${hostname}" is the base domain itself — attach a subdomain such as app.${hostname}` };
+  }
+
+  if (subLabels.length > max) {
+    return {
+      ok: false,
+      hostname,
+      reason:
+        max === 1
+          ? `Use exactly one label under ${base}, e.g. app.${base} — deeper names are not allowed`
+          : `Use at most ${max} labels under ${base}`,
+    };
+  }
+
+  const lead = subLabels[0] ?? '';
+  if (RESERVED_LABELS.includes(lead)) {
+    return {
+      ok: false,
+      hostname,
+      reason: `"${lead}" is reserved by CaptureHost (${RESERVED_LABELS.join(', ')}) and cannot point at a deployed app`,
     };
   }
 
