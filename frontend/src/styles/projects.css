@@ -408,3 +408,15 @@
     font-size: 12px;
   }
 }
+
+/* Why a deployment failed, under the status pill. Clamped to two lines so a long
+   message cannot push the table wider than the viewport. */
+.deploy-diagnosis {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  max-width: 42ch;
+}

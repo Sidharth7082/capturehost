@@ -283,6 +283,55 @@ tagged `capturehost/<slug>:<short-sha>` and pruned to `DEPLOY_KEEP_IMAGES` (3).
 
 Two minimal backends that deploy as-is — FastAPI on port 8000 and Express on port 8080, both non-root and capability-free: [`examples/`](examples/README.md).
 
+## Let an agent drive CaptureHost
+
+CaptureHost can hand a bearer token to an external agent — this machine's assistant,
+a script, a CI job — so it can inspect and fix deployments without a browser. The
+token unlocks **a fixed list of verbs**, not a shell:
+
+| Tool | What it does |
+|---|---|
+| `whoami` | the token's name and whether it may deploy |
+| `list_projects` | every project with status and port |
+| `get_project` | one project plus its last 10 deployments, each with a diagnosis |
+| `read_deployment` | one deployment: full log and diagnosis |
+| `deploy_project` | queue a deploy (only for a token created with "allow this token to start deployments") |
+| `run_doctor` | the same health report the dashboard shows |
+
+Create one in **Settings → Agent access**. The token is displayed **once**; only a
+SHA-256 hash is stored. Every call is rate-limited to 60/minute, audited as
+`agent.<tool>` with the token's name, and revocation takes effect immediately.
+
+```bash
+curl -H "Authorization: Bearer agent_…" http://127.0.0.1:8787/api/agent/tools/projects
+curl -H "Authorization: Bearer agent_…" http://127.0.0.1:8787/api/agent/tools/projects/6
+curl -X POST -H "Authorization: Bearer agent_…" \
+     http://127.0.0.1:8787/api/agent/tools/projects/6/deploy
+```
+
+What a token **cannot** do, by construction: read the host filesystem, run a command,
+call Docker directly, read `.env` values, or manage databases. Deploying a project
+runs its repository's code on this machine — a token that may deploy is a token that
+can run code, so issue those deliberately.
+
+### Diagnoses
+
+Every failed deployment carries a `diagnosis`: a stage (`clone`, `dockerfile`,
+`build`, `start`, `health`), one sentence about what went wrong, and concrete hints.
+It is deterministic — a table of rules over the log, no model, nothing
+attacker-controlled enters it — so it costs nothing and cannot be prompt-injected.
+Example, a repository with no commits:
+
+```
+stage     clone
+summary   The repository has no branch "main" — most often it is completely empty.
+hints     - Push at least one commit to the branch the project uses.
+          - An empty repository has no default branch yet, so nothing can be cloned.
+```
+
+The design note for putting a *full* autonomous agent inside the dashboard, and why
+that is deliberately not what this is, is in `docs/AGENT-DESIGN.md`.
+
 ## Databases (Postgres)
 
 Create a Postgres container from the dashboard, link it to a project, browse its

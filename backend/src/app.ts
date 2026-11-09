@@ -20,6 +20,7 @@ import { registerProjectRoutes } from './routes/projects.js';
 import { registerWebhookRoutes } from './routes/webhook.js';
 import { registerGithubRoutes } from './routes/github.js';
 import { registerDatabaseRoutes, registerUploadParser } from './routes/databases.js';
+import { registerAgentRoutes } from './routes/agent.js';
 import { DatabaseService, demuxBuffer } from './services/databases.js';
 import { createServer, type AppInstance } from './server.js';
 import { AuthService } from './services/auth.js';
@@ -35,6 +36,7 @@ import { RejectionTracker } from './routes/webhook.js';
 import { DeploymentService } from './services/deployments.js';
 import { DockerService } from './services/docker.js';
 import { GithubService } from './services/github.js';
+import { AgentAccessService } from './services/agentAccess.js';
 import { DockerStatsPoller } from './services/dockerStats.js';
 import { createGpuProbe, type GpuProbe } from './services/gpu.js';
 import { LogHub } from './services/logHub.js';
@@ -62,6 +64,8 @@ export interface BuildAppOptions {
   githubService?: GithubService;
   /** Injected in tests: a database service with a fake Docker client and pg. */
   databaseService?: DatabaseService;
+  /** Injected in tests: agent tokens on a throwaway database. */
+  agentAccessService?: AgentAccessService;
   /** Injected in tests: stubs for the Phase 6 services. */
   notificationService?: NotificationService;
   backupService?: BackupService;
@@ -181,6 +185,10 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   // the feed while it is happening.
   const notifications =
     options.notificationService ?? new NotificationService({ db, config, logger });
+  // Agent tokens: a fixed verb list, not a shell. See routes/agent.ts.
+  const agentAccess = options.agentAccessService ?? new AgentAccessService({ db, logger });
+  const agentLimiter = new SessionRateLimiter(60);
+
   // Databases talk to their own containers and to Postgres directly (no exec).
   const databases = options.databaseService ?? new DatabaseService({
     db,
@@ -286,6 +294,15 @@ export async function buildApp(options: BuildAppOptions): Promise<AppInstance> {
   registerUploadParser(app, {
     uploadDir: config.databases.importDir,
     maxUploadBytes: config.databases.maxUploadBytes,
+  });
+
+  registerAgentRoutes(app, {
+    db,
+    access: agentAccess,
+    deployments,
+    doctor,
+    limiter: agentLimiter,
+    trustedAddresses: config.trustProxyAddresses,
   });
 
   registerDatabaseRoutes(app, {

@@ -344,7 +344,14 @@ function DeploymentsTab({
       key: 'status',
       header: 'Status',
       render: (deployment) => (
-        <StatusPill label={deployment.status} tone={toneForStatus(deployment.status)} />
+        <div className="cell-primary">
+          <StatusPill label={deployment.status} tone={toneForStatus(deployment.status)} />
+          {deployment.diagnosis ? (
+            <span className="deploy-diagnosis" title={(deployment.diagnosis.hints ?? []).join(' · ')}>
+              {deployment.diagnosis.summary}
+            </span>
+          ) : null}
+        </div>
       ),
     },
     {

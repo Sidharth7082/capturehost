@@ -34,7 +34,9 @@ const ALLOWED_WHILE_PENDING = new Set(['POST /api/auth/logout']);
  * Only GitHub webhooks qualify: they carry an HMAC over the raw body, and are
  * useless without the per-project secret.
  */
-const PUBLIC_PREFIXES = ['/api/webhooks/github/'];
+// Webhooks prove themselves with an HMAC; agent tools prove themselves with a
+// bearer token inside the route. Neither carries a session cookie.
+const PUBLIC_PREFIXES = ['/api/webhooks/github/', '/api/agent/tools/'];
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 

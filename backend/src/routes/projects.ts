@@ -21,6 +21,7 @@ import { encryptString, decryptString } from '../crypto/secretbox.js';
 import { generateSessionToken } from '../crypto/token.js';
 import { authenticateUpgrade, requireAuth, type UpgradeDeps } from '../middleware/auth.js';
 import type { AppInstance } from '../server.js';
+import { diagnoseDeployment } from '../services/diagnosis.js';
 import { BranchSchema, DockerfilePathSchema, RepoUrlSchema } from '../services/git.js';
 import { clampResources, serializeCapabilities, slugify } from '../services/containerPolicy.js';
 import type { DeploymentService } from '../services/deployments.js';
@@ -142,6 +143,8 @@ function toProjectDto(project: ProjectRow, config: AppConfig) {
 function toDeploymentDto(deployment: DeploymentRow) {
   return {
     id: deployment.id,
+    // What went wrong, in one sentence, when it did. Pure function, no model.
+    diagnosis: diagnoseDeployment(deployment),
     projectId: deployment.project_id,
     commitSha: deployment.commit_sha,
     shortCommit: deployment.commit_sha?.slice(0, 7) ?? null,

@@ -1454,6 +1454,30 @@ outside world yet:
 - Gates: 458 tests pass / 1 skipped, 28 files, `tsc` clean both, build 122 modules,
   audit 0.
 
+
+### Session 26 — agent surface and deployment diagnoses
+
+- `agent_tokens` / `agent_notes` tables (migration 011). Tokens are stored as
+  SHA-256 hashes; the plaintext is returned once, in the creating response.
+- `services/agentAccess.ts`: create / list / revoke / authenticate (timing-safe
+  compare, revocation immediate, `last_used_at` stamped on every call).
+- `routes/agent.ts`: token admin under `/api/agent/tokens` (session + CSRF) and the
+  tool surface under `/api/agent/tools/*` (bearer token). Six verbs, 60 calls/min
+  per token, every call audited as `agent.<tool>`. `/api/agent/tools/` is in
+  `PUBLIC_PREFIXES` because it authenticates itself; `/api/agent/tokens` is not.
+- `services/diagnosis.ts`: deterministic failure diagnoses (clone / dockerfile /
+  build / start / health) attached to the deployment DTO, so the dashboard and the
+  agent API tell the same story.
+- Frontend: Settings → Agent access (create, show once, revoke), and the failure
+  reason under the status pill in the deployments table.
+- Deliberately **not** built: a host shell, filesystem access, Docker passthrough,
+  or an LLM in the server. See `docs/AGENT-DESIGN.md` for the three architectures
+  and why the sandboxed version is a separate project.
+- Verified live: token issued → `whoami`, `list_projects`, `get_project`,
+  `deploy_project` (queued #32) → deployment failed → diagnosis named the empty
+  repository → token revoked → 401. Audit trail shows `agent.hermes-demo` rows and
+  contains no token material.
+
 ## 10. How to resume (for the next agent)
 
 1. Read this file completely.

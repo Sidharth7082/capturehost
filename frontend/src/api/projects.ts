@@ -20,6 +20,14 @@ export type DeploymentStatus =
 
 export type ProjectStatus = 'idle' | 'deploying' | 'running' | 'stopped' | 'failed';
 
+/** What the backend thinks went wrong, in one sentence. Null when nothing did. */
+export interface Diagnosis {
+  stage: 'clone' | 'dockerfile' | 'build' | 'start' | 'health' | 'live' | 'other';
+  summary: string;
+  hints: string[];
+  actionable: boolean;
+}
+
 export interface ProjectLimits {
   cpuLimit: number;
   memoryLimitMb: number;
@@ -52,6 +60,8 @@ export interface Project {
 
 export interface Deployment {
   id: number;
+  /** Present on failure: one sentence about what went wrong, plus hints. */
+  diagnosis?: Diagnosis | null;
   projectId: number;
   commitSha: string | null;
   shortCommit: string | null;
