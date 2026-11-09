@@ -39,7 +39,65 @@ under systemd.
 | Proxy | Caddy, driven through its admin API (routes tagged `capturehost-<id>`) |
 | Ops | encrypted backups, notification feed, retention jobs, security doctor |
 
-## Requirements (Arch Linux)
+## Quickstart — from a fresh clone
+
+CaptureHost runs on your own machine: a Node backend, a Vite frontend, Caddy for
+routing and Docker for the apps it deploys. Three commands from a clean directory:
+
+```bash
+git clone https://github.com/Sidharth7082/capturehost.git
+cd capturehost
+python3 capturehost.py setup
+```
+
+`setup` checks what is installed, writes `backend/.env` (mode 600) with freshly
+generated `APP_ENCRYPTION_KEY` and `BACKUP_ENCRYPTION_KEY`, and installs the
+dependencies. It is safe to run again: an existing `.env` is never touched, because
+its keys already encrypt stored credentials.
+
+Then:
+
+```bash
+python3 capturehost.py start        # or: start --detach
+# open http://localhost:5173 and create the admin account (first run only)
+python3 capturehost.py doctor       # what is healthy, what is not
+```
+
+That is the whole setup. Nothing is exposed to the internet by this step — the
+dashboard listens on localhost only.
+
+### What you need first
+
+| Tool | Why | Install |
+|---|---|---|
+| Python 3.10+ | the launcher itself | already on most systems |
+| Node.js 20+ and npm | backend and frontend | `sudo pacman -S nodejs npm` · `sudo apt install nodejs npm` · `brew install node` |
+| Docker, running | every deployed app is a container | `sudo pacman -S docker` · `sudo apt install docker.io` · Docker Desktop |
+| git | deployments clone repositories | `sudo pacman -S git` · `sudo apt install git` · `brew install git` |
+
+Your user must be able to talk to the Docker daemon:
+
+```bash
+sudo usermod -aG docker "$USER"   # log out and back in afterwards
+```
+
+`python3 capturehost.py setup` tells you exactly which of these is missing instead
+of failing later with a stack trace.
+
+### Everyday commands
+
+```bash
+capturehost status        # table of service, pid, port, health
+capturehost logs backend  # logs backend -f to follow
+capturehost stop          # stops only what the launcher started
+capturehost restart       # stop, then start
+capturehost doctor        # 20 checks: secrets, docker, ports, backups, exposure
+```
+
+The `capturehost` alias is added by the installer for interactive shells; a wrapper
+in `~/.local/bin` makes the same command work from scripts and cron.
+
+## Requirements (Arch Linux, in full)
 
 ```bash
 sudo pacman -S --needed nodejs npm git sqlite docker

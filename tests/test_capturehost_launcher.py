@@ -9,6 +9,7 @@ process" rather than "a page looked odd". Nothing here starts the real stack.
 
 from __future__ import annotations
 
+import base64
 import http.server
 import os
 import socket
@@ -249,6 +250,63 @@ class StateFileTests(unittest.TestCase):
             finally:
                 capturehost.RUN_DIR, capturehost.STATE_FILE = original_run, original_state
                 capturehost.LOG_DIR = original_log
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class SetupCommandTests(unittest.TestCase):
+    """`capturehost setup` decides whether a fresh clone can start at all.
+
+    The dangerous behaviour is the second run: rewriting .env would replace the keys
+    that already encrypt stored credentials and tokens, so "created" must be false and
+    the bytes must be identical.
+    """
+
+    def setUp(self) -> None:
+        self.dir = Path(tempfile.mkdtemp(prefix="ch-setup-"))
+        self.example = self.dir / ".env.example"
+        self.example.write_text(
+            "PORT=8787\nAPP_ENCRYPTION_KEY=\nBACKUP_ENCRYPTION_KEY=\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        for child in sorted(self.dir.rglob("*"), reverse=True):
+            child.unlink() if child.is_file() else child.rmdir()
+        self.dir.rmdir()
+
+    def test_writes_a_dotenv_with_two_real_keys(self) -> None:
+        env_path = self.dir / ".env"
+        created, generated = capturehost._write_dotenv(self.example, env_path)
+
+        self.assertTrue(created)
+        self.assertEqual(generated, ["APP_ENCRYPTION_KEY", "BACKUP_ENCRYPTION_KEY"])
+
+        text = env_path.read_text(encoding="utf-8")
+        for key in generated:
+            value = text.split(f"{key}=")[1].splitlines()[0].strip()
+            self.assertEqual(len(base64.b64decode(value)), 32, f"{key} must decode to 32 bytes")
+
+        # it holds encryption keys: nobody else on the host may read it
+        self.assertEqual(env_path.stat().st_mode & 0o777, 0o600)
+
+    def test_never_overwrites_an_existing_dotenv(self) -> None:
+        env_path = self.dir / ".env"
+        env_path.write_text("APP_ENCRYPTION_KEY=already-set\n", encoding="utf-8")
+
+        created, generated = capturehost._write_dotenv(self.example, env_path)
+
+        self.assertFalse(created)
+        self.assertEqual(generated, [])
+        self.assertEqual(env_path.read_text(encoding="utf-8"), "APP_ENCRYPTION_KEY=already-set\n")
+
+    def test_the_parser_offers_setup(self) -> None:
+        parser = capturehost.build_parser()
+        actions = [a for a in parser._actions if a.dest == "command"]
+        self.assertEqual(len(actions), 1)
+        self.assertIn("setup", actions[0].choices)
 
 
 if __name__ == "__main__":

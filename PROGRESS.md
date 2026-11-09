@@ -1505,6 +1505,20 @@ outside world yet:
   `capturehost-animeflv-api-backend-38` on 127.0.0.1:8100, `GET /health` → 200.
   Suite 499 passed / 2 skipped; build 126 modules.
 
+### Session 28 — `capturehost setup`, and a quickstart anyone can follow
+
+- `capturehost.py setup`: checks python/node/npm/docker/git (and that the Docker
+  daemon answers), writes `backend/.env` from the example with generated
+  `APP_ENCRYPTION_KEY` and `BACKUP_ENCRYPTION_KEY` (32 bytes base64, mode 600),
+  installs both `node_modules`, and prints the next two commands. An existing `.env`
+  is never rewritten — its keys already encrypt stored credentials.
+- Verified from a real fresh clone of the public repo: `.env` written mode 600, both
+  keys decode to 32 bytes, `npm ci` both sides, second run left the file byte-identical.
+- README: "Quickstart — from a fresh clone" with the three commands, a prerequisites
+  table (python/node/docker/git per platform), the docker-group note and the everyday
+  commands.
+- Launcher tests 21 → 24.
+
 ## 10. How to resume (for the next agent)
 
 1. Read this file completely.
