@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import selectors
 import shutil
 import signal
@@ -1085,10 +1086,164 @@ def build_parser() -> argparse.ArgumentParser:
     logs.add_argument("service")
     logs.add_argument("-f", "--follow", action="store_true")
 
+    sub.add_parser("setup", help="prepare a fresh clone: config, keys, dependencies")
     sub.add_parser("doctor", help="run the backend ops doctor")
     sub.add_parser("open", help="open the dashboard in a browser")
 
     return parser
+
+
+# --------------------------------------------------------------------- setup
+
+
+def _b64_key() -> str:
+    """A 32-byte key, base64-encoded — the shape the backend's config expects."""
+    import base64
+
+    return base64.b64encode(os.urandom(32)).decode("ascii")
+
+
+def _tool_version(command: list[str]) -> str | None:
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=15, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    first = (result.stdout or result.stderr or "").strip().splitlines()
+    return first[0].strip() if first else None
+
+
+def _write_dotenv(env_example: Path, env_path: Path) -> tuple[bool, list[str]]:
+    """
+    Create backend/.env from the example, filling in the two encryption keys.
+
+    Returns (created, generated_keys). An existing .env is never touched: it may hold
+    keys that already encrypt stored credentials, and replacing it would orphan them.
+    """
+    if env_path.exists():
+        return False, []
+
+    text = env_example.read_text(encoding="utf-8")
+    generated: list[str] = []
+
+    for key in ("APP_ENCRYPTION_KEY", "BACKUP_ENCRYPTION_KEY"):
+        value = _b64_key()
+        text = re.sub(rf"^{key}=.*$", f"{key}={value}", text, count=1, flags=re.MULTILINE)
+        generated.append(key)
+
+    env_path.write_text(text, encoding="utf-8")
+    env_path.chmod(0o600)  # it holds encryption keys; nobody else on the host needs it
+    return True, generated
+
+
+def command_setup(console: Console) -> int:
+    """Everything a fresh clone needs, in one command."""
+    console.step("Checking what this machine already has")
+    problems: list[str] = []
+
+    python_ok = sys.version_info >= (3, 10)
+    console.ok(f"python {sys.version.split()[0]}") if python_ok else console.fail("python 3.10 or newer is required")
+
+    node = _tool_version(["node", "--version"])
+    if node:
+        console.ok(f"node {node}")
+    else:
+        console.fail("node is missing — install Node.js 20 or newer")
+        problems.append("node")
+
+    npm = _tool_version(["npm", "--version"])
+    if npm:
+        console.ok(f"npm {npm}")
+    else:
+        console.fail("npm is missing — it ships with Node.js")
+        problems.append("npm")
+
+    docker = _tool_version([docker_bin(), "--version"])
+    if docker:
+        console.ok(docker)
+        reachable = subprocess.run(
+            [docker_bin(), "info", "--format", "{{.ServerVersion}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if reachable.returncode == 0:
+            console.ok(f"docker daemon reachable ({reachable.stdout.strip()})")
+        else:
+            console.fail("the docker daemon is not reachable — start Docker and add yourself to the docker group")
+            problems.append("docker-daemon")
+    else:
+        console.fail("docker is missing — CaptureHost runs every deployed app in a container")
+        problems.append("docker")
+
+    if _tool_version(["git", "--version"]):
+        console.ok(_tool_version(["git", "--version"]) or "git")
+    else:
+        console.fail("git is missing — deployments clone repositories")
+        problems.append("git")
+
+    # ---- configuration ----
+    console.step("Configuration")
+    env_example = ENV_FILE.with_name(".env.example")
+    env_path = ENV_FILE
+
+    if not env_example.exists():
+        console.fail(f"{env_example} is missing — is this a complete clone?")
+        return 1
+
+    created, generated = _write_dotenv(env_example, env_path)
+    if created:
+        console.ok(f"wrote {env_path} (mode 600) with {', '.join(generated)}")
+        console.note("Keep a copy of BACKUP_ENCRYPTION_KEY somewhere off this machine: without it, encrypted backups cannot be opened.")
+    else:
+        console.skip(f"{env_path} already exists — left untouched")
+
+    try:
+        text = env_path.read_text(encoding="utf-8")
+        secret = re.search(r"^APP_ENCRYPTION_KEY=(.*)$", text, flags=re.MULTILINE)
+        if not secret or not secret.group(1).strip():
+            console.fail("APP_ENCRYPTION_KEY is empty — generate one with: openssl rand -base64 32")
+            problems.append("APP_ENCRYPTION_KEY")
+        else:
+            console.ok("APP_ENCRYPTION_KEY is set")
+    except OSError:
+        console.fail(f"cannot read {env_path}")
+
+    ensure_dirs()
+
+    # ---- dependencies ----
+    console.step("Installing dependencies (once, a few minutes)")
+    for label, directory in (("backend", REPO_ROOT / "backend"), ("frontend", REPO_ROOT / "frontend")):
+        if (directory / "node_modules").is_dir():
+            console.skip(f"{label}/node_modules present")
+            continue
+        console.note(f"installing {label} dependencies")
+        installed = False
+        for command in (["npm", "ci"], ["npm", "install"]):
+            result = subprocess.run(command, cwd=directory, capture_output=True, text=True, check=False)
+            if result.returncode == 0:
+                console.ok(f"{label}/node_modules installed")
+                installed = True
+                break
+        if not installed:
+            console.fail(f"npm install failed in {label}/ — run it by hand to see the error")
+            problems.append(f"{label}-deps")
+
+    # ---- verdict ----
+    print()
+    if problems:
+        console.fail(f"setup is incomplete: {', '.join(problems)}")
+        console.note("Fix those, then run this again — it is safe to repeat.")
+        return 1
+
+    console.ok("setup complete")
+    console.note("")
+    console.note("Next:")
+    console.note("  python3 capturehost.py start")
+    console.note("  open http://localhost:5173 and create the admin account (first run only)")
+    console.note("  python3 capturehost.py doctor   # what is healthy, what is not")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1118,6 +1273,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if command == "logs":
         return command_logs(console, args.service, args.follow)
+
+    if command == "setup":
+        return command_setup(console)
 
     if command == "doctor":
         return command_doctor(console)
