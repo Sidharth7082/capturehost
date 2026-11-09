@@ -153,6 +153,64 @@ old deployments cannot be rolled back to once they age out.
 
 ---
 
+## Deploying an API, not just a website
+
+Nothing in the pipeline knows the difference: a project is a repository with a
+Dockerfile that listens on one port. An Express, FastAPI, Go or Rust HTTP service
+deploys exactly like the static test app, and Caddy proxies to it the same way.
+
+What works today:
+
+| Capability | Status |
+|---|---|
+| JSON / REST / GraphQL over HTTP | yes — plain `reverse_proxy` to the container |
+| WebSockets | yes — Caddy upgrades transparently |
+| Server-sent events, streaming responses | yes — no proxy buffering timeout is configured |
+| Long-running requests | yes — no Caddy timeout is set |
+| Request bodies | not capped on the apps listener (only the webhook gateway caps at 1 MB) |
+| TLS | yes, through the tunnel — your app speaks plain HTTP, Cloudflare does HTTPS |
+| Environment | your own `env` vars, plus `DATABASE_URL` after you link a database |
+| `X-Forwarded-For` / `-Host` / `-Proto` | set by Caddy; trust them in your app if you need real client IPs |
+
+The three things that bite an API specifically:
+
+1. **Bind to `0.0.0.0`, not `127.0.0.1`.** Inside the container, localhost is only
+   the container. `app.listen(8080, '0.0.0.0')` or `uvicorn --host 0.0.0.0`.
+2. **One port.** Only the container port you declared is published; a second
+   listener (metrics, gRPC, admin) is unreachable. gRPC specifically does **not**
+   work: the route is HTTP/1.1, there is no h2c transport configured.
+3. **There is no persistent disk.** No volumes are mounted for applications, so
+   anything your API writes to its own filesystem is gone on the next deploy. Keep
+   state in a linked database (Databases → New database → Clone/Upload/Empty) or in
+   an external object store.
+
+Minimal FastAPI example:
+
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+ENV PORT=8000
+EXPOSE 8000
+# --host 0.0.0.0 matters: 127.0.0.1 is unreachable from the proxy
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+Set **Container port 8000** when creating the project, attach
+`api.captureordie.online`, and the service is live at `https://api.captureordie.online`.
+
+**Your API is public the moment it has a hostname.** CaptureHost's login, sessions
+and CSRF protect the dashboard, not your app: authentication inside your API is your
+own job (an API key, JWT, whatever you choose). If it should not be reachable from
+the internet, leave the domain off — you can still hit it locally on
+`127.0.0.1:<host port>` and from other containers by container name.
+
+One instance per project. There is no autoscaling, no replica set and no separate
+worker process: long jobs belong in the same process (a background task) or in a
+cron container you run yourself.
+
 ## What the container can and cannot do
 
 Every container is built by `services/containerPolicy.ts` — the only place a
